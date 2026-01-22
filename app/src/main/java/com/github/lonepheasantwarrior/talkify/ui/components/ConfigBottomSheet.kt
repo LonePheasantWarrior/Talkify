@@ -56,16 +56,14 @@ fun ConfigBottomSheet(
     onConfigSaved: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
 
     LaunchedEffect(isOpen) {
         if (!isOpen && sheetState.isVisible) {
             sheetState.hide()
         }
-    }
-
-    LaunchedEffect(Unit) {
-        sheetState.show()
     }
 
     val savedConfig = remember(currentEngine, isOpen) {
