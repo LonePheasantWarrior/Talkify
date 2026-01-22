@@ -42,7 +42,6 @@ class TalkifyTtsService : TextToSpeechService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val requestQueue = LinkedBlockingQueue<SynthesisRequestWrapper>()
-    private val isProcessing = AtomicBoolean(false)
     private val processingSemaphore = Semaphore(1)
     private var isStopped = AtomicBoolean(false)
 
