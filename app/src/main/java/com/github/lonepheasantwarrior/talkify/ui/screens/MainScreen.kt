@@ -81,6 +81,8 @@ fun MainScreen(
         TalkifyTtsDemoService(currentEngine.id)
     }
 
+    var isPlaying by remember { mutableStateOf(false) }
+
     LaunchedEffect(appConfigRepository) {
         val savedEngineId = appConfigRepository.getSelectedEngineId()
         if (savedEngineId != null) {
@@ -96,15 +98,16 @@ fun MainScreen(
         demoService.setStateListener { state ->
             when (state) {
                 TalkifyTtsDemoService.STATE_IDLE -> {
-                    // 空闲状态，不做处理
+                    isPlaying = false
                 }
                 TalkifyTtsDemoService.STATE_PLAYING -> {
-                    // 播放中
+                    isPlaying = true
                 }
                 TalkifyTtsDemoService.STATE_STOPPED -> {
-                    // 已停止
+                    isPlaying = false
                 }
                 TalkifyTtsDemoService.STATE_ERROR -> {
+                    isPlaying = false
                     scope.launch {
                         snackbarHostState.showSnackbar("播放失败，请检查配置")
                     }
@@ -118,7 +121,6 @@ fun MainScreen(
     var selectedVoice by remember { mutableStateOf<VoiceInfo?>(null) }
     val defaultInputText = stringResource(R.string.default_text)
     var inputText by remember { mutableStateOf(defaultInputText) }
-    var isPlaying by remember { mutableStateOf(false) }
     var isConfigSheetOpen by remember { mutableStateOf(false) }
 
     var savedConfig by remember { mutableStateOf(configRepository.getConfig(currentEngine)) }
