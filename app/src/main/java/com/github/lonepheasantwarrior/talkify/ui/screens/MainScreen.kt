@@ -8,10 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -80,6 +80,18 @@ fun MainScreen(
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { isConfigSheetOpen = true },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.List,
+                    contentDescription = "设置"
+                )
+            }
+        },
         topBar = {
             LargeTopAppBar(
                 title = {
@@ -95,14 +107,7 @@ fun MainScreen(
                         )
                     }
                 },
-                navigationIcon = {
-                    IconButton(onClick = { isConfigSheetOpen = true }) {
-                        Icon(
-                            imageVector = Icons.Filled.Menu,
-                            contentDescription = "设置"
-                        )
-                    }
-                },
+                navigationIcon = {},
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
