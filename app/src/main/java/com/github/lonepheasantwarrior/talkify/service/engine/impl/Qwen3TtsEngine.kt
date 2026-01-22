@@ -4,6 +4,7 @@ import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.service.TtsErrorCode
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import com.github.lonepheasantwarrior.talkify.service.engine.AbstractTtsEngine
+import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
 
 /**
@@ -29,11 +30,13 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
 
     override fun synthesize(
         text: String,
+        params: SynthesisParams,
         config: EngineConfig,
         listener: TtsSynthesisListener
     ) {
         checkNotReleased()
-        TtsLogger.w(TAG, "synthesize called but engine not implemented")
+        logWarning("synthesize called with params: pitch=${params.pitch}, speechRate=${params.speechRate}, volume=${params.volume}")
+        logWarning("Engine not implemented yet")
         listener.onError(TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
     }
 }

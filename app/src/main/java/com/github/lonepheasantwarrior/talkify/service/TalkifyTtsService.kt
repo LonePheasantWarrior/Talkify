@@ -8,6 +8,7 @@ import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigReposit
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
+import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
@@ -216,11 +217,18 @@ class TalkifyTtsService : TextToSpeechService() {
             return
         }
 
+        val params = SynthesisParams(
+            pitch = request.pitch.toFloat(),
+            speechRate = request.speechRate.toFloat(),
+            volume = 1.0f
+        )
+        TtsLogger.d("onSynthesizeText: params - pitch=${params.pitch}, speechRate=${params.speechRate}, volume=${params.volume}")
+
         try {
             callback.start(DEFAULT_SAMPLE_RATE, DEFAULT_AUDIO_FORMAT, DEFAULT_CHANNEL_COUNT)
             TtsLogger.d("Synthesis started")
 
-            engine.synthesize(text, config, object : TtsSynthesisListener {
+            engine.synthesize(text, params, config, object : TtsSynthesisListener {
                 override fun onSynthesisStarted() {
                     TtsLogger.d("Synthesis started callback")
                 }
