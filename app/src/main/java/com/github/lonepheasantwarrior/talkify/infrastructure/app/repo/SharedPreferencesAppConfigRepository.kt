@@ -1,0 +1,40 @@
+package com.github.lonepheasantwarrior.talkify.infrastructure.app.repo
+
+import android.content.Context
+import android.content.SharedPreferences
+import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
+import androidx.core.content.edit
+
+/**
+ * 基于 SharedPreferences 的应用配置仓储实现
+ *
+ * 存储应用级全局配置，如用户选择的引擎 ID
+ * 与引擎特定配置（apiKey、voiceId）分离
+ * 不与任何特定 TTS 引擎绑定
+ */
+class SharedPreferencesAppConfigRepository(
+    context: Context
+) : AppConfigRepository {
+
+    private val sharedPreferences: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    override fun getSelectedEngineId(): String? {
+        return sharedPreferences.getString(KEY_SELECTED_ENGINE, null)
+    }
+
+    override fun saveSelectedEngineId(engineId: String) {
+        sharedPreferences.edit {
+            putString(KEY_SELECTED_ENGINE, engineId)
+        }
+    }
+
+    override fun hasSelectedEngine(): Boolean {
+        return sharedPreferences.contains(KEY_SELECTED_ENGINE)
+    }
+
+    companion object {
+        private const val PREFS_NAME = "talkify_app_config"
+        private const val KEY_SELECTED_ENGINE = "selected_engine"
+    }
+}

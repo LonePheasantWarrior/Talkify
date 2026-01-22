@@ -28,11 +28,13 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
+import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceInfo
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceRepository
-import com.github.lonepheasantwarrior.talkify.infrastructure.repository.Qwen3TtsConfigRepository
-import com.github.lonepheasantwarrior.talkify.infrastructure.repository.Qwen3TtsVoiceRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsVoiceRepository
 import com.github.lonepheasantwarrior.talkify.ui.components.ConfigBottomSheet
 import com.github.lonepheasantwarrior.talkify.ui.components.EngineSelector
 import com.github.lonepheasantwarrior.talkify.ui.components.VoicePreview
@@ -53,6 +55,10 @@ fun MainScreen(
         Qwen3TtsConfigRepository(context)
     }
 
+    val appConfigRepository: AppConfigRepository = remember {
+        SharedPreferencesAppConfigRepository(context)
+    }
+
     val availableEngines = TtsEngineRegistry.availableEngines
     val defaultEngine = TtsEngineRegistry.defaultEngine
 
@@ -60,14 +66,14 @@ fun MainScreen(
         mutableStateOf(defaultEngine)
     }
 
-    LaunchedEffect(configRepository) {
-        val savedEngineId = configRepository.getSelectedEngineId()
+    LaunchedEffect(appConfigRepository) {
+        val savedEngineId = appConfigRepository.getSelectedEngineId()
         if (savedEngineId != null) {
             TtsEngineRegistry.getEngine(savedEngineId)?.let { engine ->
                 currentEngine = engine
             }
         } else {
-            configRepository.saveSelectedEngineId(defaultEngine.id)
+            appConfigRepository.saveSelectedEngineId(defaultEngine.id)
         }
     }
     var availableVoices by remember { mutableStateOf<List<VoiceInfo>>(emptyList()) }
@@ -138,7 +144,7 @@ fun MainScreen(
                 availableEngines = availableEngines,
                 onEngineSelected = { engine ->
                     currentEngine = engine
-                    configRepository.saveSelectedEngineId(engine.id)
+                    appConfigRepository.saveSelectedEngineId(engine.id)
                 },
                 modifier = Modifier.fillMaxWidth()
             )
