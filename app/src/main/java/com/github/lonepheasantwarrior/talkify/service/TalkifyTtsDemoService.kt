@@ -79,11 +79,21 @@ class TalkifyTtsDemoService(
 
         serviceScope.launch {
             try {
+                val channelMask = if (audioConfig.channelCount == 1) {
+                    AudioFormat.CHANNEL_OUT_MONO
+                } else {
+                    AudioFormat.CHANNEL_OUT_STEREO
+                }
+                
                 val bufferSize = AudioTrack.getMinBufferSize(
                     audioConfig.sampleRate,
-                    audioConfig.channelCount,
+                    channelMask,
                     audioConfig.audioFormat
                 )
+
+                if (bufferSize <= 0) {
+                    throw IllegalArgumentException("Invalid buffer size: $bufferSize. Audio parameters may be unsupported.")
+                }
 
                 audioTrack = AudioTrack.Builder()
                     .setAudioAttributes(
@@ -95,13 +105,7 @@ class TalkifyTtsDemoService(
                     .setAudioFormat(
                         AudioFormat.Builder()
                             .setSampleRate(audioConfig.sampleRate)
-                            .setChannelMask(
-                                if (audioConfig.channelCount == 1) {
-                                    AudioFormat.CHANNEL_OUT_MONO
-                                } else {
-                                    AudioFormat.CHANNEL_OUT_STEREO
-                                }
-                            )
+                            .setChannelMask(channelMask)
                             .setEncoding(audioConfig.audioFormat)
                             .build()
                     )
