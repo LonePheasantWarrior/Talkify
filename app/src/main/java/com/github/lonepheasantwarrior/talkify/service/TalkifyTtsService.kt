@@ -217,7 +217,7 @@ class TalkifyTtsService : TextToSpeechService() {
             return
         }
 
-        currentConfig = engineConfigRepository?.getConfig(ttsEngine)
+        currentConfig = engineConfigRepository?.getConfig(engineId)
         TtsLogger.d("Engine initialized: ${currentEngine?.getEngineName()}")
     }
 
@@ -361,11 +361,5 @@ class TalkifyTtsService : TextToSpeechService() {
         if (processingSemaphore.availablePermits() == 0) {
             processingSemaphore.release()
         }
-    }
-
-    companion object {
-        private const val DEFAULT_SAMPLE_RATE = 16000
-        private const val DEFAULT_AUDIO_FORMAT = android.media.AudioFormat.ENCODING_PCM_16BIT
-        private const val DEFAULT_CHANNEL_COUNT = 1
     }
 }

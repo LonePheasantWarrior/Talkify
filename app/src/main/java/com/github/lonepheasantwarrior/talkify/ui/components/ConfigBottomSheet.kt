@@ -69,7 +69,7 @@ fun ConfigBottomSheet(
     }
 
     val savedConfig = remember(currentEngine, isOpen) {
-        configRepository.getConfig(currentEngine)
+        configRepository.getConfig(currentEngine.id)
     }
 
     val apiKeyLabel = stringResource(R.string.api_key_label)
@@ -170,7 +170,7 @@ fun ConfigBottomSheet(
                             apiKey = configItems.find { it.key == "api_key" }?.value ?: "",
                             voiceId = configItems.find { it.key == "voice_id" }?.value ?: ""
                         )
-                        configRepository.saveConfig(currentEngine, newConfig)
+                        configRepository.saveConfig(currentEngine.id, newConfig)
                         isConfigModified = false
                         onConfigSaved?.invoke()
                         onDismiss()

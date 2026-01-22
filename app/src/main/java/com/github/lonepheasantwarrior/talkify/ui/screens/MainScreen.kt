@@ -123,10 +123,10 @@ fun MainScreen(
     var inputText by remember { mutableStateOf(defaultInputText) }
     var isConfigSheetOpen by remember { mutableStateOf(false) }
 
-    var savedConfig by remember { mutableStateOf(configRepository.getConfig(currentEngine)) }
+    var savedConfig by remember { mutableStateOf(configRepository.getConfig(currentEngine.id)) }
 
     LaunchedEffect(currentEngine) {
-        savedConfig = configRepository.getConfig(currentEngine)
+        savedConfig = configRepository.getConfig(currentEngine.id)
         val voices = voiceRepository.getVoicesForEngine(currentEngine)
         availableVoices = voices
         selectedVoice = availableVoices.find { it.voiceId == savedConfig.voiceId } ?: voices.firstOrNull()
@@ -250,7 +250,7 @@ fun MainScreen(
         configRepository = configRepository,
         voiceRepository = voiceRepository,
         onConfigSaved = {
-            savedConfig = configRepository.getConfig(currentEngine)
+            savedConfig = configRepository.getConfig(currentEngine.id)
         }
     )
 }

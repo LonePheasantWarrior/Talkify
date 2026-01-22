@@ -4,7 +4,6 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
-import com.github.lonepheasantwarrior.talkify.service.engine.AudioConfig
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
@@ -42,8 +41,6 @@ class TalkifyTtsDemoService(
     @Volatile
     private var currentState = STATE_IDLE
 
-    private val audioConfig: AudioConfig = AudioConfig.QWEN3_TTS
-
     private var stateListener: ((Int) -> Unit)? = null
 
     fun setStateListener(listener: (Int) -> Unit) {
@@ -74,7 +71,8 @@ class TalkifyTtsDemoService(
         currentState = STATE_PLAYING
         notifyStateChange()
 
-        TtsLogger.d("Starting synthesis: textLength=${text.length}")
+        val audioConfig = engine.getAudioConfig()
+        TtsLogger.d("Starting synthesis: textLength=${text.length}, audioConfig=${audioConfig.getFormatDescription()}")
 
         serviceScope.launch {
             try {

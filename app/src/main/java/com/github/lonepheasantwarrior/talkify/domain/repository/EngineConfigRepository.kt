@@ -1,7 +1,6 @@
 package com.github.lonepheasantwarrior.talkify.domain.repository
 
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
-import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngine
 
 /**
  * 引擎配置仓储接口
@@ -16,24 +15,24 @@ interface EngineConfigRepository {
     /**
      * 获取指定引擎的配置
      *
-     * @param engine TTS 引擎
+     * @param engineId 引擎 ID
      * @return 引擎配置
      */
-    fun getConfig(engine: TtsEngine): EngineConfig
+    fun getConfig(engineId: String): EngineConfig
 
     /**
      * 保存指定引擎的配置
      *
-     * @param engine TTS 引擎
+     * @param engineId 引擎 ID
      * @param config 引擎配置
      */
-    fun saveConfig(engine: TtsEngine, config: EngineConfig)
+    fun saveConfig(engineId: String, config: EngineConfig)
 
     /**
      * 检查指定引擎是否有已保存的配置
      *
-     * @param engine TTS 引擎
+     * @param engineId 引擎 ID
      * @return 是否有已保存的配置
      */
-    fun hasConfig(engine: TtsEngine): Boolean
+    fun hasConfig(engineId: String): Boolean
 }
