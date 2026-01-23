@@ -26,7 +26,7 @@ object NetworkConnectivityChecker {
     private const val TAG = "TalkifyNetwork"
     private const val TEST_HOST = "www.aliyun.com"
     private const val TEST_PORT = 443
-    private const val TIMEOUT_MS = 5000L
+    private const val TIMEOUT_MS = 1000L
 
     /**
      * 检查是否具有联网权限
