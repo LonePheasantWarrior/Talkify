@@ -10,6 +10,11 @@
   <img src="images/Screenshot_talkify.webp" width="260" style="margin-right: 10px;"  alt="应用截图"/>
 </div>
 
+## 推荐搭配阅读软件
+
+[Legado / 开源阅读](https://github.com/gedoor/legado)  
+[Legado / 开源阅读 APP书源](https://github.com/aoaostar/legado)
+
 ## 技术栈
 
 - **语言**: Kotlin
