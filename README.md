@@ -112,3 +112,13 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | 引擎 ID | 服务商 | 语言支持 |
 |---------|--------|---------|
 | qwen3-tts | 阿里云通义千问 | zh, en, de, fr, es, pt, it, ja, ko, ru |
+
+## 感谢
+- [Trae](https://www.trae.cn)
+- [MiniMax M2.1](https://www.minimaxi.com/news/minimax-m21)
+
+## Buy Me a Mixue 🍦
+<div style="text-align: left;">
+  <img src="images/alipay_1769136488503.webp" width="245" style="margin-right: 10px;"  alt="支付宝打赏二维码"/>
+  <img src="images/wechat_1769136466823.webp" width="245"  alt="微信打赏二维码"/>
+</div>
