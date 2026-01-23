@@ -12,6 +12,7 @@ class TalkifyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         TtsLogger.i(TAG) { "TalkifyApplication onCreate" }
+        TalkifyAppHolder.setContext(this)
         TalkifyExceptionHandler.initialize()
     }
 }

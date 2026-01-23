@@ -17,26 +17,40 @@
 ```
 app/src/main/java/com/github/lonepheasantwarrior/talkify/
 ├── MainActivity.kt              # 应用入口
+├── TalkifyApplication.kt        # Application 类（全局异常处理初始化）
+├── GlobalException.kt           # 全局异常处理器和应用上下文持有者
 ├── domain/                      # 领域层（业务逻辑核心）
 │   ├── model/                   # 领域模型
-│       └── repo/
-│           └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
+│   │   ├── TtsModels.kt         # TTS 引擎领域模型
+│   │   ├── EngineConfig.kt      # 引擎配置（apiKey, voiceId）
+│   │   ├── TtsEngineRegistry.kt # 引擎注册表
+│   │   └── repo/                # 仓储接口定义
+│   └── repository/              # 仓储接口
 ├── infrastructure/              # 基础设施层（外部服务集成）
 │   ├── engine/                  # 引擎特定实现
 │   │   └── repo/
 │   │       ├── Qwen3TtsVoiceRepository.kt   # 通义千问3语音仓储实现
 │   │       └── Qwen3TtsConfigRepository.kt  # 通义千问3配置仓储实现
-│   ├── app/                     # 应用级配置实现
-│   │   ├── permission/          # 权限与网络检查
-│   │   │   ├── PermissionChecker.kt         # 权限检查工具类
-│   │   │   ├── NetworkConnectivityChecker.kt # 网络连通性检查（统一入口）
-│   │   │   └── ConnectivityMonitor.kt       # 网络状态监控器
-│   │   ├── update/              # 更新检查
-│   │   │   └── UpdateChecker.kt # GitHub Releases API 调用
-│   │   └── repo/
-│   │       └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
-│   └── service/                     # 服务层（TTS 引擎服务）
-│       └── engine/                  # 引擎抽象层
+│   └── app/                     # 应用级配置实现
+│       ├── permission/          # 权限与网络检查
+│       │   ├── PermissionChecker.kt         # 权限检查工具类
+│       │   ├── NetworkConnectivityChecker.kt # 网络连通性检查（统一入口）
+│       │   └── ConnectivityMonitor.kt       # 网络状态监控器
+│       ├── update/              # 更新检查
+│       │   └── UpdateChecker.kt # GitHub Releases API 调用
+│       └── repo/
+│           └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
+├── service/                     # 服务层（TTS 引擎服务）
+│   ├── TalkifyTtsService.kt     # TTS 服务（继承 TextToSpeechService）
+│   ├── TalkifyTtsDemoService.kt # 语音预览服务
+│   ├── TtsErrorCode.kt          # 错误码定义（15种错误类型）
+│   ├── TtsErrorHelper.kt        # 错误处理助手
+│   ├── TtsLogger.kt             # 日志工具类
+│   └── engine/                  # 引擎抽象层
+│       ├── TtsEngineApi.kt      # 引擎抽象接口
+│       ├── TtsEngineFactory.kt  # 引擎工厂
+│       └── impl/
+│           └── Qwen3TtsEngine.kt # 通义千问3引擎实现
 └── ui/                          # 表现层（UI 组件）
     ├── components/              # UI 组件
     ├── screens/                 # 界面
@@ -108,6 +122,9 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 4. **系统 TTS** - 请求队列 + 速率控制 + 错误处理
 5. **启动网络检查** - 权限检查 + 网络状态检测 + Android 16 兼容
 6. **检查更新** - GitHub Releases 自动检查 + Release Notes 展示 + 智能错误处理
+7. **全局异常处理** - 未捕获异常崩溃对话框 + 重启应用功能
+8. **错误消息传递** - 引擎层异常映射 + 服务到 UI 的错误状态传递
+9. **扩展错误码** - 15 种错误类型（含网络错误、通用错误）
 
 ## 构建
 

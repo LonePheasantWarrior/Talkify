@@ -152,8 +152,7 @@ fun ConfigBottomSheet(
                         )
                     }
                 } else {
-
-                ConfigEditor(
+                    ConfigEditor(
                     engineName = currentEngine.name,
                     configItems = configItems,
                     availableVoices = availableVoices,
