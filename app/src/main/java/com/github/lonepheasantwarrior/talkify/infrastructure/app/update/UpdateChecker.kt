@@ -28,6 +28,7 @@ class UpdateChecker(
 
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.setRequestProperty("User-Agent", "Talkify-Android-App")
             connection.connectTimeout = CONNECT_TIMEOUT
             connection.readTimeout = READ_TIMEOUT
             connection.instanceFollowRedirects = true
@@ -66,7 +67,7 @@ class UpdateChecker(
             val json = JSONObject(jsonResponse)
 
             val versionName = json.optString("tag_name", "")
-            if (versionName.length == 0) {
+            if (versionName.isEmpty()) {
                 TtsLogger.w(TAG) { "无法获取版本名称" }
                 return null
             }
@@ -100,7 +101,7 @@ class UpdateChecker(
 
             if (name.endsWith(".apk")) {
                 val downloadUrl = asset.optString("browser_download_url", "")
-                return if (downloadUrl.length > 0) downloadUrl else null
+                return downloadUrl.ifEmpty { null }
             }
         }
 
@@ -109,7 +110,7 @@ class UpdateChecker(
     }
 
     private fun formatDate(isoDate: String): String {
-        if (isoDate.length == 0) return ""
+        if (isoDate.isEmpty()) return ""
 
         return try {
             val datePart = isoDate.split("T")[0]
