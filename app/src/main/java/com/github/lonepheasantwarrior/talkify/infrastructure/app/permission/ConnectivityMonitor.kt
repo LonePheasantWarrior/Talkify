@@ -34,12 +34,22 @@ object ConnectivityMonitor {
     private const val TIMEOUT_MS = 1000L
 
     data class NetworkStatus(
-        val isAvailable: Boolean,
-        val hasInternet: Boolean,
+        val hasNetwork: Boolean,
+        val hasInternetCapability: Boolean,
         val isValidated: Boolean,
         val isBlockedBySystem: Boolean,
         val transportTypes: List<String>
-    )
+    ) {
+        companion object {
+            fun unavailable() = NetworkStatus(
+                hasNetwork = false,
+                hasInternetCapability = false,
+                isValidated = false,
+                isBlockedBySystem = false,
+                transportTypes = emptyList()
+            )
+        }
+    }
 
     /**
      * 获取当前网络状态
@@ -50,30 +60,21 @@ object ConnectivityMonitor {
     fun getCurrentNetworkStatus(context: Context): NetworkStatus {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
             as? ConnectivityManager
-            ?: return NetworkStatus(
-                isAvailable = false,
-                hasInternet = false,
-                isValidated = false,
-                isBlockedBySystem = false,
-                transportTypes = emptyList<String>()
-            )
+            ?: return NetworkStatus.unavailable()
 
         val network = connectivityManager.activeNetwork
-        val capabilities = network?.let { connectivityManager.getNetworkCapabilities(it) }
-
-        if (capabilities == null) {
-            return NetworkStatus(
-                isAvailable = false,
-                hasInternet = false,
-                isValidated = false,
-                isBlockedBySystem = false,
-                transportTypes = emptyList<String>()
-            )
+        if (network == null) {
+            return NetworkStatus.unavailable()
         }
 
-        val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        if (capabilities == null) {
+            return NetworkStatus.unavailable()
+        }
+
+        val hasInternetCapability = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        val isBlockedBySystem = !hasInternet
+        val isBlockedBySystem = !hasInternetCapability
 
         val transportTypes = mutableListOf<String>()
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
@@ -90,8 +91,8 @@ object ConnectivityMonitor {
         }
 
         return NetworkStatus(
-            isAvailable = network != null,
-            hasInternet = hasInternet,
+            hasNetwork = true,
+            hasInternetCapability = hasInternetCapability,
             isValidated = isValidated,
             isBlockedBySystem = isBlockedBySystem,
             transportTypes = transportTypes
@@ -99,13 +100,23 @@ object ConnectivityMonitor {
     }
 
     /**
-     * 检查网络是否可用
+     * 检查是否有网络连接
      *
      * @param context 上下文
-     * @return 网络是否可用
+     * @return 是否有活动网络
      */
-    fun isNetworkAvailable(context: Context): Boolean {
-        return getCurrentNetworkStatus(context).isAvailable
+    fun hasNetwork(context: Context): Boolean {
+        return getCurrentNetworkStatus(context).hasNetwork
+    }
+
+    /**
+     * 检查网络是否有互联网能力
+     *
+     * @param context 上下文
+     * @return 网络是否有 internet capability
+     */
+    fun hasInternetCapability(context: Context): Boolean {
+        return getCurrentNetworkStatus(context).hasInternetCapability
     }
 
     /**
@@ -120,8 +131,8 @@ object ConnectivityMonitor {
     suspend fun canAccessInternet(context: Context): Boolean {
         val status = getCurrentNetworkStatus(context)
 
-        if (!status.isAvailable) {
-            TtsLogger.w(TAG) { "canAccessInternet: 无活动网络" }
+        if (!status.hasNetwork) {
+            TtsLogger.w(TAG) { "canAccessInternet: 无网络" }
             return false
         }
 
@@ -174,7 +185,7 @@ object ConnectivityMonitor {
             as? ConnectivityManager
 
         if (connectivityManager == null) {
-            trySend(getCurrentNetworkStatus(context))
+            trySend(NetworkStatus.unavailable())
             close()
             return@callbackFlow
         }
@@ -185,7 +196,7 @@ object ConnectivityMonitor {
             }
 
             override fun onLost(network: Network) {
-                trySend(getCurrentNetworkStatus(context))
+                trySend(NetworkStatus.unavailable())
             }
 
             override fun onCapabilitiesChanged(
@@ -221,8 +232,8 @@ object ConnectivityMonitor {
         val status = getCurrentNetworkStatus(context)
         val sb = StringBuilder()
         sb.appendLine("=== 网络诊断信息 ===")
-        sb.appendLine("isAvailable: ${status.isAvailable}")
-        sb.appendLine("hasInternet: ${status.hasInternet}")
+        sb.appendLine("hasNetwork: ${status.hasNetwork}")
+        sb.appendLine("hasInternetCapability: ${status.hasInternetCapability}")
         sb.appendLine("isValidated: ${status.isValidated}")
         sb.appendLine("isBlockedBySystem: ${status.isBlockedBySystem}")
         sb.appendLine("transportTypes: ${status.transportTypes.joinToString()}")

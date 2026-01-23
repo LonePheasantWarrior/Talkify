@@ -68,12 +68,12 @@ object NetworkConnectivityChecker {
         val status = ConnectivityMonitor.getCurrentNetworkStatus(context)
         TtsLogger.d(TAG) {
             "getNetworkUnavailableReason: status = " +
-                "isAvailable=${status.isAvailable}, " +
-                "hasInternet=${status.hasInternet}, " +
+                "hasNetwork=${status.hasNetwork}, " +
+                "hasInternetCapability=${status.hasInternetCapability}, " +
                 "isBlockedBySystem=${status.isBlockedBySystem}"
         }
 
-        if (!status.isAvailable) {
+        if (!status.hasNetwork) {
             TtsLogger.w(TAG) { "getNetworkUnavailableReason: 原因 = NO_NETWORK" }
             return NetworkUnavailableReason.NO_NETWORK
         }
