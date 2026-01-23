@@ -73,14 +73,13 @@ fun UpdateDialog(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = updateInfo.releaseNotes,
+                    MarkdownText(
+                        content = updateInfo.releaseNotes,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(120.dp)
-                            .verticalScroll(rememberScrollState())
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -125,7 +124,15 @@ fun UpdateDialog(
 
 private fun openDownloadUrl(context: android.content.Context, updateInfo: UpdateInfo) {
     try {
-        val url = updateInfo.downloadUrl ?: updateInfo.releaseUrl
+        val downloadUrl = updateInfo.downloadUrl
+        val releaseUrl = updateInfo.releaseUrl
+        
+        val url = when {
+            !downloadUrl.isNullOrEmpty() -> downloadUrl
+            !releaseUrl.isNullOrEmpty() -> releaseUrl
+            else -> return
+        }
+        
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
         context.startActivity(intent)
     } catch (e: Exception) {
