@@ -1,6 +1,5 @@
 package com.github.lonepheasantwarrior.talkify
 
-import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -9,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import android.app.AlertDialog
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -34,12 +34,14 @@ class MainActivity : ComponentActivity() {
 
     private var pendingDialog: AlertDialog? = null
     private var hasShownNetworkBlockedDialog = false
+    private var isReturningFromSettings = false
 
     private val settingsLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        TtsLogger.d(TAG) { "settingsLauncher: 用户从系统设置返回，重新检查网络状态" }
+        TtsLogger.d(TAG) { "settingsLauncher: 用户从系统设置返回" }
         hasShownNetworkBlockedDialog = false
+        isReturningFromSettings = true
         checkNetworkStatus()
     }
 
@@ -64,10 +66,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        TtsLogger.d(TAG) { "MainActivity.onResume" }
-        if (!hasShownNetworkBlockedDialog) {
+        TtsLogger.d(TAG) { "MainActivity.onResume: isReturningFromSettings=$isReturningFromSettings" }
+        if (!hasShownNetworkBlockedDialog && !isReturningFromSettings) {
             checkNetworkStatus()
         }
+        isReturningFromSettings = false
     }
 
     override fun onPause() {
