@@ -1,6 +1,7 @@
 package com.github.lonepheasantwarrior.talkify
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -16,9 +17,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.github.lonepheasantwarrior.talkify.domain.model.UpdateInfo
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.NetworkConnectivityChecker
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.PermissionChecker
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.update.UpdateChecker
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
+import com.github.lonepheasantwarrior.talkify.ui.components.UpdateDialog
 import com.github.lonepheasantwarrior.talkify.ui.screens.MainScreen
 import com.github.lonepheasantwarrior.talkify.ui.theme.TalkifyTheme
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +45,10 @@ class MainActivity : ComponentActivity() {
     private var isReturningFromSettings by mutableStateOf(false)
     private var isCheckingNetwork by mutableStateOf(false)
     private var isActivityDestroyed by mutableStateOf(false)
+
+    private var pendingUpdateInfo by mutableStateOf<UpdateInfo?>(null)
+
+    private val updateChecker by lazy { UpdateChecker() }
 
     private val settingsLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -67,6 +75,14 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         isCheckingNetwork = isCheckingNetwork
                     )
+
+                    pendingUpdateInfo?.let { updateInfo ->
+                        UpdateDialog(
+                            updateInfo = updateInfo,
+                            onDismiss = { pendingUpdateInfo = null },
+                            onRemindLater = { pendingUpdateInfo = null }
+                        )
+                    }
                 }
             }
         }
@@ -135,6 +151,7 @@ class MainActivity : ComponentActivity() {
                 if (canAccess) {
                     TtsLogger.i(TAG) { "checkNetworkStatus: 网络可用，继续启动" }
                     dismissDialog()
+                    checkForUpdates()
                 } else {
                     val reason = NetworkConnectivityChecker.getNetworkUnavailableReason(this@MainActivity)
                     TtsLogger.w(TAG) { "checkNetworkStatus: 网络不可用，原因为: $reason" }
@@ -143,6 +160,42 @@ class MainActivity : ComponentActivity() {
             } finally {
                 isCheckingNetwork = false
             }
+        }
+    }
+
+    private fun checkForUpdates() {
+        TtsLogger.d(TAG) { "checkForUpdates: 开始检查更新..." }
+
+        activityScope.launch {
+            try {
+                val currentVersion = getCurrentAppVersion()
+                TtsLogger.d(TAG) { "checkForUpdates: 当前版本 = $currentVersion" }
+
+                val updateInfo = withContext(Dispatchers.IO) {
+                    updateChecker.checkForUpdates(currentVersion)
+                }
+
+                if (updateInfo != null) {
+                    TtsLogger.i(TAG) { "checkForUpdates: 发现新版本 ${updateInfo.versionName}" }
+                    if (!isActivityDestroyed) {
+                        pendingUpdateInfo = updateInfo
+                    }
+                } else {
+                    TtsLogger.d(TAG) { "checkForUpdates: 已是最新版本或检查失败" }
+                }
+            } catch (e: Exception) {
+                TtsLogger.e(TAG) { "checkForUpdates: 检查更新时发生异常: ${e.message}" }
+            }
+        }
+    }
+
+    private fun getCurrentAppVersion(): String {
+        return try {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            packageInfo.versionName ?: "1.0.0"
+        } catch (e: PackageManager.NameNotFoundException) {
+            TtsLogger.e(TAG) { "getCurrentAppVersion: 无法获取版本信息: ${e.message}" }
+            "1.0.0"
         }
     }
 
