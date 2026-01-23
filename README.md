@@ -19,21 +19,24 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 ├── MainActivity.kt              # 应用入口
 ├── domain/                      # 领域层（业务逻辑核心）
 │   ├── model/                   # 领域模型
-│   └── repository/              # 仓储接口定义
+│       └── repo/
+│           └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
 ├── infrastructure/              # 基础设施层（外部服务集成）
 │   ├── engine/                  # 引擎特定实现
 │   │   └── repo/
 │   │       ├── Qwen3TtsVoiceRepository.kt   # 通义千问3语音仓储实现
 │   │       └── Qwen3TtsConfigRepository.kt  # 通义千问3配置仓储实现
-│   └── app/                     # 应用级配置实现
-│       ├── permission/          # 权限与网络检查
-│       │   ├── PermissionChecker.kt         # 权限检查工具类
-│       │   ├── NetworkConnectivityChecker.kt # 网络连通性检查（统一入口）
-│       │   └── ConnectivityMonitor.kt       # 网络状态监控器
-│       └── repo/
-│           └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
-├── service/                     # 服务层（TTS 引擎服务）
-│   └── engine/                  # 引擎抽象层
+│   ├── app/                     # 应用级配置实现
+│   │   ├── permission/          # 权限与网络检查
+│   │   │   ├── PermissionChecker.kt         # 权限检查工具类
+│   │   │   ├── NetworkConnectivityChecker.kt # 网络连通性检查（统一入口）
+│   │   │   └── ConnectivityMonitor.kt       # 网络状态监控器
+│   │   ├── update/              # 更新检查
+│   │   │   └── UpdateChecker.kt # GitHub Releases API 调用
+│   │   └── repo/
+│   │       └── SharedPreferencesAppConfigRepository.kt # 应用配置实现
+│   └── service/                     # 服务层（TTS 引擎服务）
+│       └── engine/                  # 引擎抽象层
 └── ui/                          # 表现层（UI 组件）
     ├── components/              # UI 组件
     ├── screens/                 # 界面
@@ -48,6 +51,8 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | `TtsModels.kt` | TTS 引擎领域模型 |
 | `EngineConfig.kt` | 引擎配置（apiKey, voiceId） |
 | `TtsEngineRegistry.kt` | 引擎注册表 |
+| `UpdateInfo.kt` | 更新信息数据类 |
+| `UpdateCheckResult.kt` | 更新检查结果密封类 |
 | `*Repository.kt` | 仓储接口定义 |
 | **infrastructure/** | |
 | `Qwen3Tts*Repository.kt` | 通义千问3仓储实现 |
@@ -56,6 +61,8 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | `PermissionChecker.kt` | 运行时权限检查 |
 | `NetworkConnectivityChecker.kt` | 网络连通性检测（统一入口） |
 | `ConnectivityMonitor.kt` | 网络状态监控与 TCP 连接测试 |
+| **update/** | |
+| `UpdateChecker.kt` | GitHub Releases API 调用与更新检查 |
 | **service/** | |
 | `TalkifyTtsService.kt` | TTS 服务（继承 TextToSpeechService） |
 | `TalkifyTtsDemoService.kt` | 语音预览服务 |
@@ -63,6 +70,7 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | `Qwen3TtsEngine.kt` | 通义千问3引擎实现 |
 | **ui/** | |
 | `MainScreen.kt` | 主界面 |
+| `UpdateDialog.kt` | 更新提示对话框 |
 | `*BottomSheet.kt` | 底部弹窗 |
 | `*Preview.kt` | 语音预览 |
 | `*Selector.kt` | 引擎选择器 |
@@ -76,13 +84,21 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
     ↓ 无权限 → 弹窗提示，授权后跳转系统设置
     ↓ 无网络 → 弹窗提示，查看系统设置
     ↓ 被系统阻止（Android 16 开关）→ 弹窗提示
-    ↓ 连接成功 → 正常启动
+    ↓ 连接成功 → 检查更新
 ```
 
 **检测模块**：
 - `PermissionChecker`：检查 INTERNET 权限
 - `ConnectivityMonitor`：监控网络状态，执行 TCP 连接测试
 - `NetworkConnectivityChecker`：统一入口，整合权限和网络检查
+- `UpdateChecker`：GitHub Releases API 调用与更新检查（网络检查通过后执行）
+
+**更新检查**：
+- 使用 GitHub REST API 获取最新 Release 信息
+- 10 秒超时兼容国内网络环境
+- 区分网络超时（静默放弃）和网络错误（用户提示）
+- 发现新版本时弹出 Material 3 更新提示对话框
+- 支持显示 Release Notes 作为更新说明
 
 ## 已实现功能
 
@@ -91,6 +107,7 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 3. **引擎配置** - API Key 管理 + 声音选择 + 持久化存储
 4. **系统 TTS** - 请求队列 + 速率控制 + 错误处理
 5. **启动网络检查** - 权限检查 + 网络状态检测 + Android 16 兼容
+6. **检查更新** - GitHub Releases 自动检查 + Release Notes 展示 + 智能错误处理
 
 ## 构建
 

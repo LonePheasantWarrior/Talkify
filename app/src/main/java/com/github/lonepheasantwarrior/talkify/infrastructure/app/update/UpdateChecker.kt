@@ -1,10 +1,13 @@
 package com.github.lonepheasantwarrior.talkify.infrastructure.app.update
 
+import com.github.lonepheasantwarrior.talkify.domain.model.UpdateCheckResult
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateInfo
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.UnknownHostException
 
 class UpdateChecker(
     private val owner: String = "LonePheasantWarrior",
@@ -18,7 +21,7 @@ class UpdateChecker(
         private const val READ_TIMEOUT = 10000
     }
 
-    fun checkForUpdates(currentVersion: String): UpdateInfo? {
+    fun checkForUpdates(currentVersion: String): UpdateCheckResult {
         TtsLogger.i(TAG) { "开始检查更新，当前版本: $currentVersion" }
 
         return try {
@@ -36,29 +39,50 @@ class UpdateChecker(
             val responseCode = connection.responseCode
             TtsLogger.d(TAG) { "GitHub API 响应码: $responseCode" }
 
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                val inputStream = connection.inputStream
-                val reader = inputStream.bufferedReader()
-                val response = reader.readText()
-                reader.close()
-                inputStream.close()
+            when (responseCode) {
+                HttpURLConnection.HTTP_OK -> {
+                    val inputStream = connection.inputStream
+                    val reader = inputStream.bufferedReader()
+                    val response = reader.readText()
+                    reader.close()
+                    inputStream.close()
 
-                val updateInfo = parseReleaseResponse(response, currentVersion)
+                    val updateInfo = parseReleaseResponse(response, currentVersion)
 
-                if (updateInfo != null && isVersionNewer(updateInfo.versionName, currentVersion)) {
-                    TtsLogger.i(TAG) { "发现新版本: ${updateInfo.versionName}" }
-                    updateInfo
-                } else {
-                    TtsLogger.i(TAG) { "当前已是最新版本" }
-                    null
+                    if (updateInfo == null) {
+                        TtsLogger.e(TAG) { "解析 Release 响应失败" }
+                        UpdateCheckResult.ParseError("无法解析版本信息")
+                    } else if (isVersionNewer(updateInfo.versionName, currentVersion)) {
+                        TtsLogger.i(TAG) { "发现新版本: ${updateInfo.versionName}" }
+                        UpdateCheckResult.UpdateAvailable(updateInfo)
+                    } else {
+                        TtsLogger.i(TAG) { "当前已是最新版本" }
+                        UpdateCheckResult.NoUpdateAvailable
+                    }
                 }
-            } else {
-                TtsLogger.w(TAG) { "检查更新失败，响应码: $responseCode" }
-                null
+                404 -> {
+                    TtsLogger.w(TAG) { "未找到 Release，可能还没有发布版本" }
+                    UpdateCheckResult.NoUpdateAvailable
+                }
+                in 500..599 -> {
+                    TtsLogger.w(TAG) { "GitHub 服务端错误: $responseCode" }
+                    UpdateCheckResult.ServerError(responseCode)
+                }
+                else -> {
+                    TtsLogger.w(TAG) { "GitHub API 返回意外状态码: $responseCode" }
+                    UpdateCheckResult.ServerError(responseCode)
+                }
             }
+        } catch (e: SocketTimeoutException) {
+            TtsLogger.w(TAG) { "检查更新超时（国内网络可能无法访问 GitHub）" }
+            UpdateCheckResult.NetworkTimeout
+        } catch (e: UnknownHostException) {
+            TtsLogger.w(TAG) { "无法解析域名，可能是 DNS 问题或网络不可达: ${e.message}" }
+            UpdateCheckResult.NetworkTimeout
         } catch (e: Exception) {
-            TtsLogger.e(TAG) { "检查更新时发生异常: ${e.message}" }
-            null
+            val errorMessage = e.message ?: "未知错误"
+            TtsLogger.e(TAG) { "检查更新时发生异常: $errorMessage" }
+            UpdateCheckResult.NetworkError(errorMessage)
         }
     }
 

@@ -1,5 +1,6 @@
 package com.github.lonepheasantwarrior.talkify
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -9,7 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import android.app.AlertDialog
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.github.lonepheasantwarrior.talkify.domain.model.UpdateCheckResult
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateInfo
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.NetworkConnectivityChecker
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.PermissionChecker
@@ -171,22 +172,45 @@ class MainActivity : ComponentActivity() {
                 val currentVersion = getCurrentAppVersion()
                 TtsLogger.d(TAG) { "checkForUpdates: 当前版本 = $currentVersion" }
 
-                val updateInfo = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     updateChecker.checkForUpdates(currentVersion)
                 }
 
-                if (updateInfo != null) {
-                    TtsLogger.i(TAG) { "checkForUpdates: 发现新版本 ${updateInfo.versionName}" }
-                    if (!isActivityDestroyed) {
-                        pendingUpdateInfo = updateInfo
+                when (result) {
+                    is UpdateCheckResult.UpdateAvailable -> {
+                        TtsLogger.i(TAG) { "checkForUpdates: 发现新版本 ${result.updateInfo.versionName}" }
+                        if (!isActivityDestroyed) {
+                            pendingUpdateInfo = result.updateInfo
+                        }
                     }
-                } else {
-                    TtsLogger.d(TAG) { "checkForUpdates: 已是最新版本或检查失败" }
+                    is UpdateCheckResult.NoUpdateAvailable -> {
+                        TtsLogger.d(TAG) { "checkForUpdates: 已是最新版本或暂无 Release" }
+                    }
+                    is UpdateCheckResult.NetworkTimeout -> {
+                        TtsLogger.w(TAG) { "checkForUpdates: 网络超时（国内网络无法访问 GitHub），静默放弃" }
+                    }
+                    is UpdateCheckResult.NetworkError -> {
+                        TtsLogger.w(TAG) { "checkForUpdates: 网络错误: ${result.message}" }
+                        showUpdateCheckError(getString(R.string.update_check_failed_network))
+                    }
+                    is UpdateCheckResult.ServerError -> {
+                        TtsLogger.w(TAG) { "checkForUpdates: GitHub 服务端错误: ${result.httpCode}" }
+                        showUpdateCheckError(getString(R.string.update_check_failed_server))
+                    }
+                    is UpdateCheckResult.ParseError -> {
+                        TtsLogger.e(TAG) { "checkForUpdates: 解析错误: ${result.message}" }
+                        showUpdateCheckError(getString(R.string.update_check_failed))
+                    }
                 }
             } catch (e: Exception) {
                 TtsLogger.e(TAG) { "checkForUpdates: 检查更新时发生异常: ${e.message}" }
             }
         }
+    }
+
+    private fun showUpdateCheckError(message: String) {
+        if (isActivityDestroyed) return
+        TtsLogger.d(TAG) { "showUpdateCheckError: 显示错误提示" }
     }
 
     private fun getCurrentAppVersion(): String {
