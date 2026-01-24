@@ -467,9 +467,10 @@ class TalkifyTtsService : TextToSpeechService() {
         val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() == true
 
         if (isCompatibilityMode) {
+            TtsLogger.d("onSynthesizeText[CompatibilityMode]: queuing text: ${request.charSequenceText}")
             processRequestSynchronously(request, callback)
         } else {
-            TtsLogger.d("onSynthesizeText: queuing request, queue size = ${requestQueue.size + 1}")
+            TtsLogger.d("onSynthesizeText:  queue size = ${requestQueue.size + 1}, text: ${request.charSequenceText},")
             requestQueue.put(SynthesisRequestWrapper(request, callback))
         }
     }
@@ -582,7 +583,7 @@ class TalkifyTtsService : TextToSpeechService() {
 
             isSynthesisInProgress.set(false)
             if (synthesisError != null) {
-                val code = inferErrorCodeFromMessage(synthesisError!!)
+                val code = inferErrorCodeFromMessage(synthesisError)
                 callback.error(TtsErrorCode.toAndroidError(code))
             } else {
                 callback.done()
