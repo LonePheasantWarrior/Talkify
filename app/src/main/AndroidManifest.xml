@@ -23,7 +23,6 @@
             android:theme="@style/Theme.Talkify">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
@@ -32,14 +31,14 @@
             android:name=".service.TalkifyTtsService"
             android:exported="true"
             android:label="@string/app_name"
-            android:permission="android.permission.BIND_TEXT_TO_SPEECH_SERVICE">
+            android:permission="android.permission.BIND_TEXT_TO_SPEECH">
             <intent-filter>
                 <action android:name="android.intent.action.TTS_SERVICE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <meta-data
                 android:name="android.speech.tts"
-                android:resource="@xml/tts_service_meta_data" />
+                android:resource="@xml/tts_engine" />
         </service>
     </application>
 
