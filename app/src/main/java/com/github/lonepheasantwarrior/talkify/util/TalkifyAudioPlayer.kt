@@ -27,6 +27,8 @@ class TalkifyAudioPlayer(
         private const val MIN_BUFFER_MULTIPLIER = 2
         private const val PROGRESS_CHECK_INTERVAL_MS = 50L
         private const val PLAYBACK_COMPLETE_CHECK_INTERVAL_MS = 20L
+
+        private const val ATTRIBUTION_TAG = "TalkifyTtsService"
     }
 
     private var audioTrack: AudioTrack? = null
@@ -48,9 +50,9 @@ class TalkifyAudioPlayer(
     private var playbackCompleteListener: (() -> Unit)? = null
 
     fun configureAudioAttributes(
-        usage: Int = AudioAttributes.USAGE_MEDIA,
+        usage: Int = AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY,
         contentType: Int = AudioAttributes.CONTENT_TYPE_SPEECH,
-        flags: Int = 0
+        flags: Int = AudioAttributes.FLAG_AUDIBILITY_ENFORCED
     ): AudioAttributes {
         return AudioAttributes.Builder()
             .setUsage(usage)

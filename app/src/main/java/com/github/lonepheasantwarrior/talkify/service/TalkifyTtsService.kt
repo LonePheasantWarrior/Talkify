@@ -1,7 +1,16 @@
 package com.github.lonepheasantwarrior.talkify.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
+import androidx.core.app.NotificationCompat
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
@@ -12,6 +21,8 @@ import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
+import com.github.lonepheasantwarrior.talkify.MainActivity
+import com.github.lonepheasantwarrior.talkify.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +32,9 @@ import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
+
+private const val CHANNEL_ID = "talkify_tts_playback"
+private const val NOTIFICATION_ID = 1001
 
 /**
  * Talkify TTS 服务
@@ -46,6 +60,13 @@ class TalkifyTtsService : TextToSpeechService() {
     private var isStopped = AtomicBoolean(false)
     private var isSynthesisInProgress = AtomicBoolean(false)
     private var synthesisLatch: java.util.concurrent.CountDownLatch? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var isForegroundServiceRunning = false
+    private var activeCallback: android.speech.tts.SynthesisCallback? = null
+
+    private val notificationManager: NotificationManager by lazy {
+        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
 
     private var appConfigRepository: AppConfigRepository? = null
     private var engineConfigRepository: EngineConfigRepository? = null
@@ -62,9 +83,95 @@ class TalkifyTtsService : TextToSpeechService() {
     override fun onCreate() {
         super.onCreate()
         TtsLogger.i("TalkifyTtsService onCreate")
+        initializeWakeLock()
+        createNotificationChannel()
         initializeRepositories()
-        initializeEngine()
+        val engineInitSuccess = initializeEngine()
+        TtsLogger.d("Engine initialization result: $engineInitSuccess")
         startRequestProcessor()
+    }
+
+    private fun initializeWakeLock() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "Talkify:TtsServiceWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
+        TtsLogger.d("WakeLock initialized")
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = getString(R.string.notification_channel_description)
+                setShowBadge(false)
+            }
+            notificationManager.createNotificationChannel(channel)
+            TtsLogger.d("Notification channel created")
+        }
+    }
+
+    private fun buildNotification(): Notification {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(getString(R.string.notification_text))
+            .setSmallIcon(R.drawable.ic_tts_notification)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+    }
+
+    private fun startForegroundService() {
+        if (!isForegroundServiceRunning) {
+            startForeground(NOTIFICATION_ID, buildNotification())
+            isForegroundServiceRunning = true
+            TtsLogger.d("Foreground service started")
+        }
+    }
+
+    private fun stopForegroundService() {
+        if (isForegroundServiceRunning) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            isForegroundServiceRunning = false
+            TtsLogger.d("Foreground service stopped")
+        }
+    }
+
+    private fun acquireWakeLock() {
+        wakeLock?.let {
+            if (!it.isHeld) {
+                it.acquire(10 * 60 * 1000L)
+                TtsLogger.d("WakeLock acquired")
+            }
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+                TtsLogger.d("WakeLock released")
+            }
+        }
     }
 
     private fun startRequestProcessor() {
@@ -113,6 +220,10 @@ class TalkifyTtsService : TextToSpeechService() {
 
         TtsLogger.d("processRequestInternal: text length = ${text.length}")
 
+        startForegroundService()
+        acquireWakeLock()
+        activeCallback = callback
+
         val engine = currentEngine
         if (engine == null) {
             TtsLogger.e("processRequestInternal: no engine available")
@@ -151,7 +262,7 @@ class TalkifyTtsService : TextToSpeechService() {
             language = request.language
         )
 
-        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() == true
+        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() ?: false
 
         try {
             val audioConfig = engine.getAudioConfig()
@@ -166,8 +277,17 @@ class TalkifyTtsService : TextToSpeechService() {
         } catch (e: Exception) {
             TtsLogger.e("Synthesis failed", e)
             callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
+            releaseWakeLock()
+            stopForegroundServiceIfIdle()
             processingSemaphore.release()
         }
+    }
+
+    private fun stopForegroundServiceIfIdle() {
+        if (!requestQueue.isEmpty() || processingSemaphore.availablePermits() == 0) {
+            return
+        }
+        stopForegroundService()
     }
 
     private fun processWithCompatibilityMode(
@@ -225,6 +345,8 @@ class TalkifyTtsService : TextToSpeechService() {
                 TtsLogger.e("Compatibility mode: synthesis error: $error")
                 val errorCode = inferErrorCodeFromMessage(error)
                 callback.error(TtsErrorCode.toAndroidError(errorCode))
+                releaseWakeLock()
+                stopForegroundServiceIfIdle()
                 processingSemaphore.release()
             }
         })
@@ -266,6 +388,8 @@ class TalkifyTtsService : TextToSpeechService() {
             override fun onSynthesisCompleted() {
                 TtsLogger.d("Synthesis completed")
                 callback.done()
+                releaseWakeLock()
+                stopForegroundServiceIfIdle()
                 processingSemaphore.release()
             }
 
@@ -273,6 +397,8 @@ class TalkifyTtsService : TextToSpeechService() {
                 TtsLogger.e("Synthesis error: $error")
                 val errorCode = inferErrorCodeFromMessage(error)
                 callback.error(TtsErrorCode.toAndroidError(errorCode))
+                releaseWakeLock()
+                stopForegroundServiceIfIdle()
                 processingSemaphore.release()
             }
         })
@@ -326,7 +452,7 @@ class TalkifyTtsService : TextToSpeechService() {
         }
     }
 
-    private fun initializeEngine() {
+    private fun initializeEngine(): Boolean {
         val selectedEngineId = appConfigRepository?.getSelectedEngineId()
         val engineId = selectedEngineId ?: run {
             TtsLogger.w("No selected engine found, using default")
@@ -343,18 +469,19 @@ class TalkifyTtsService : TextToSpeechService() {
 
             if (currentEngine == null) {
                 TtsLogger.e("Failed to create engine: $engineId")
-                return
+                return false
             }
         }
 
         val ttsEngine = TtsEngineRegistry.getEngine(engineId)
         if (ttsEngine == null) {
             TtsLogger.e("Engine not found in registry: $engineId")
-            return
+            return false
         }
 
         currentConfig = engineConfigRepository?.getConfig(engineId)
         TtsLogger.d("Engine initialized: ${currentEngine?.getEngineName()}")
+        return true
     }
 
     override fun onIsLanguageAvailable(
@@ -420,7 +547,7 @@ class TalkifyTtsService : TextToSpeechService() {
 
         val result = when (locale.language) {
             "zh", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru" -> {
-                TtsLogger.i("Language loaded: ${locale.language}")
+                TtsLogger.d("Language loaded: ${locale.language}")
                 TextToSpeech.LANG_AVAILABLE
             }
             else -> {
@@ -440,7 +567,7 @@ class TalkifyTtsService : TextToSpeechService() {
             "DEU", "DE" -> "DE"
             "FRA", "FR" -> "FR"
             "KOR", "KR" -> "KR"
-            else -> if (country.length == 2) country.uppercase() else "US"
+            else -> country.uppercase()
         }
     }
 
@@ -472,7 +599,7 @@ class TalkifyTtsService : TextToSpeechService() {
             return
         }
 
-        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() == true
+        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() ?: false
 
         if (isCompatibilityMode) {
             TtsLogger.d("onSynthesizeText[CompatibilityMode]: queuing text: ${request.charSequenceText}")
@@ -508,6 +635,9 @@ class TalkifyTtsService : TextToSpeechService() {
             currentPlayer?.stop()
             synthesisLatch = null
         }
+
+        startForegroundService()
+        acquireWakeLock()
 
         val engine = currentEngine
         if (engine == null) {
@@ -592,11 +722,15 @@ class TalkifyTtsService : TextToSpeechService() {
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 isSynthesisInProgress.set(false)
+                releaseWakeLock()
+                stopForegroundService()
                 callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
                 return
             }
 
             isSynthesisInProgress.set(false)
+            releaseWakeLock()
+            stopForegroundService()
             if (synthesisError != null) {
                 val code = inferErrorCodeFromMessage(synthesisError)
                 callback.error(TtsErrorCode.toAndroidError(code))
@@ -606,6 +740,8 @@ class TalkifyTtsService : TextToSpeechService() {
         } catch (e: Exception) {
             TtsLogger.e("processRequestSynchronously: Synthesis failed", e)
             isSynthesisInProgress.set(false)
+            releaseWakeLock()
+            stopForegroundService()
             callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
         }
     }
@@ -641,6 +777,8 @@ class TalkifyTtsService : TextToSpeechService() {
         }
         currentPlayer = null
         serviceScope.cancel()
+        releaseWakeLock()
+        stopForegroundService()
         super.onDestroy()
     }
 

@@ -99,4 +99,10 @@
     <string name="compatibility_mode">兼容模式</string>
     <string name="compatibility_mode_description">兼容模式用于适配并不完全遵守谷歌 TTS 调用规范的阅读工具，使朗读功能可以正常工作。</string>
     <string name="cd_compatibility_mode_help">兼容模式帮助</string>
+
+    <!-- 前台服务通知 -->
+    <string name="notification_channel_name">朗读服务</string>
+    <string name="notification_channel_description">显示正在进行的朗读服务状态</string>
+    <string name="notification_title">Talkify 正在朗读</string>
+    <string name="notification_text">点击打开应用</string>
 </resources>
