@@ -5,7 +5,6 @@ import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
-import androidx.core.app.NotificationCompat
 import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
@@ -171,7 +170,7 @@ class TalkifyTtsService : TextToSpeechService() {
                         processingSemaphore.acquire()
                         processRequestInternal(wrapper)
                     }
-                } catch (e: InterruptedException) {
+                } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                     break
                 } catch (e: Exception) {
@@ -216,7 +215,6 @@ class TalkifyTtsService : TextToSpeechService() {
 
         TtsLogger.d("processRequestInternal: text length = ${text.length}")
 
-        startForegroundService()
         acquireWakeLock()
         activeCallback = callback
 
@@ -280,6 +278,7 @@ class TalkifyTtsService : TextToSpeechService() {
             }
         } catch (e: Exception) {
             TtsLogger.e("Synthesis failed", e)
+            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
             callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
             releaseWakeLock()
             stopForegroundServiceIfIdle()
@@ -337,6 +336,7 @@ class TalkifyTtsService : TextToSpeechService() {
 
         val player = currentPlayer!!
 
+        startForegroundService()
         engine.synthesize(text, params, config, object : TtsSynthesisListener {
             override fun onSynthesisStarted() {
                 TtsLogger.d("Compatibility mode: synthesis started")
@@ -397,6 +397,7 @@ class TalkifyTtsService : TextToSpeechService() {
             return
         }
 
+        startForegroundService()
         engine.synthesize(text, params, config, object : TtsSynthesisListener {
             override fun onSynthesisStarted() {
                 TtsLogger.d("Synthesis started callback")
@@ -813,7 +814,6 @@ class TalkifyTtsService : TextToSpeechService() {
             synthesisLatch = null
         }
 
-        startForegroundService()
         acquireWakeLock()
 
         val engineId = currentEngineId
@@ -876,6 +876,7 @@ class TalkifyTtsService : TextToSpeechService() {
             synthesisLatch = java.util.concurrent.CountDownLatch(1)
             var synthesisError: String? = null
 
+            startForegroundService()
             engine.synthesize(text, params, config, object : TtsSynthesisListener {
                 override fun onSynthesisStarted() {
                     TtsLogger.d("processRequestSynchronously: synthesis started")
@@ -924,6 +925,7 @@ class TalkifyTtsService : TextToSpeechService() {
             }
         } catch (e: Exception) {
             TtsLogger.e("processRequestSynchronously: Synthesis failed", e)
+            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
             isSynthesisInProgress.set(false)
             releaseWakeLock()
             stopForegroundService()
