@@ -1,22 +1,23 @@
 package com.github.lonepheasantwarrior.talkify.service
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
-import androidx.core.app.NotificationCompat
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.notification.TalkifyNotificationChannel
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.notification.NotificationContent
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.notification.NotificationHelper
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.notification.NotificationOptions
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
@@ -35,7 +36,6 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
-private const val CHANNEL_ID = "talkify_tts_playback"
 private const val NOTIFICATION_ID = 1001
 
 /**
@@ -65,10 +65,6 @@ class TalkifyTtsService : TextToSpeechService() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var isForegroundServiceRunning = false
     private var activeCallback: android.speech.tts.SynthesisCallback? = null
-
-    private val notificationManager: NotificationManager by lazy {
-        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    }
 
     private var appConfigRepository: AppConfigRepository? = null
     private var engineConfigRepository: EngineConfigRepository? = null
@@ -105,18 +101,13 @@ class TalkifyTtsService : TextToSpeechService() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.notification_channel_description)
-                setShowBadge(false)
-            }
-            notificationManager.createNotificationChannel(channel)
-            TtsLogger.d("Notification channel created")
-        }
+        NotificationHelper.createNotificationChannel(
+            context = this,
+            channel = TalkifyNotificationChannel.TTS_PLAYBACK,
+            channelName = getString(R.string.notification_channel_name),
+            channelDescription = getString(R.string.notification_channel_description)
+        )
+        TtsLogger.d("Notification channel created")
     }
 
     private fun buildNotification(): Notification {
@@ -130,16 +121,23 @@ class TalkifyTtsService : TextToSpeechService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(R.drawable.ic_tts_notification)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
+        val content = NotificationContent(
+            title = getString(R.string.notification_title),
+            text = getString(R.string.notification_text),
+            smallIconResId = R.drawable.ic_tts_notification
+        )
+
+        val options = NotificationOptions(
+            channel = TalkifyNotificationChannel.TTS_PLAYBACK,
+            notificationId = NOTIFICATION_ID,
+            content = content,
+            pendingIntent = pendingIntent,
+            isOngoing = true,
+            isSilent = true,
+            category = android.app.Notification.CATEGORY_SERVICE
+        )
+
+        return NotificationHelper.buildNotification(this, options)
     }
 
     private fun startForegroundService() {
