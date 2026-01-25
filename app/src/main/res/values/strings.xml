@@ -60,7 +60,6 @@
     <string name="tts_error_unknown">发生未知错误</string>
     <string name="tts_error_not_implemented">该引擎功能尚未实现</string>
     <string name="tts_config_suggestion">请前往应用设置页面配置 API Key</string>
-    <string name="tts_error_synthesis_failed">语音合成失败</string>
 
     <!-- 内容描述（辅助功能） -->
     <string name="cd_play_button">播放语音</string>
