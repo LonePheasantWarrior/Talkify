@@ -1,5 +1,6 @@
 package com.github.lonepheasantwarrior.talkify
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -17,12 +18,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateCheckResult
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateInfo
+import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.NetworkConnectivityChecker
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.PermissionChecker
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.update.UpdateChecker
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
+import com.github.lonepheasantwarrior.talkify.ui.components.NotificationPermissionDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.UpdateDialog
 import com.github.lonepheasantwarrior.talkify.ui.screens.MainScreen
 import com.github.lonepheasantwarrior.talkify.ui.theme.TalkifyTheme
@@ -50,6 +55,22 @@ class MainActivity : ComponentActivity() {
     private var pendingUpdateInfo by mutableStateOf<UpdateInfo?>(null)
 
     private val updateChecker by lazy { UpdateChecker() }
+
+    private val appConfigRepository: AppConfigRepository by lazy {
+        SharedPreferencesAppConfigRepository(this)
+    }
+
+    private var showNotificationPermissionDialog by mutableStateOf(false)
+
+    private val notificationPermissionLauncher: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            TtsLogger.d(TAG) { "notificationPermissionLauncher: 权限结果 = $isGranted" }
+            if (isGranted) {
+                TtsLogger.i(TAG) { "notificationPermissionLauncher: 用户授予了通知权限" }
+            } else {
+                TtsLogger.w(TAG) { "notificationPermissionLauncher: 用户拒绝了通知权限" }
+            }
+        }
 
     private val settingsLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -84,11 +105,19 @@ class MainActivity : ComponentActivity() {
                             onRemindLater = { pendingUpdateInfo = null }
                         )
                     }
+
+                    if (showNotificationPermissionDialog) {
+                        NotificationPermissionDialog(
+                            onConfirm = { requestNotificationPermission() },
+                            onDismiss = { skipNotificationPermission() }
+                        )
+                    }
                 }
             }
         }
 
         checkNetworkStatus()
+        checkNotificationPermission()
     }
 
     override fun onResume() {
@@ -162,6 +191,35 @@ class MainActivity : ComponentActivity() {
                 isCheckingNetwork = false
             }
         }
+    }
+
+    private fun checkNotificationPermission() {
+        TtsLogger.d(TAG) { "checkNotificationPermission: 开始检查通知权限..." }
+
+        if (PermissionChecker.hasNotificationPermission(this)) {
+            TtsLogger.d(TAG) { "checkNotificationPermission: 已拥有通知权限，无需弹窗" }
+            return
+        }
+
+        if (appConfigRepository.hasSkippedNotificationPermission()) {
+            TtsLogger.d(TAG) { "checkNotificationPermission: 用户之前选择跳过，不再弹窗" }
+            return
+        }
+
+        TtsLogger.d(TAG) { "checkNotificationPermission: 需要显示通知权限请求弹窗" }
+        showNotificationPermissionDialog = true
+    }
+
+    private fun requestNotificationPermission() {
+        TtsLogger.d(TAG) { "requestNotificationPermission: 请求通知权限" }
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        showNotificationPermissionDialog = false
+    }
+
+    private fun skipNotificationPermission() {
+        TtsLogger.d(TAG) { "skipNotificationPermission: 用户选择以后再说" }
+        appConfigRepository.setSkippedNotificationPermission(true)
+        showNotificationPermissionDialog = false
     }
 
     private fun checkForUpdates() {
