@@ -28,7 +28,6 @@
 app/src/main/java/com/github/lonepheasantwarrior/talkify/
 ├── MainActivity.kt              # 应用入口
 ├── TalkifyApplication.kt        # Application 类（全局异常处理初始化 + 通知通道预创建）
-├── TalkifyNotificationActivity.kt # 全屏通知弹窗 Activity（heads-up 悬浮通知）
 ├── TalkifyCheckDataActivity.kt  # TTS 数据检查 Activity（系统 TTS 集成）
 ├── TalkifySampleTextActivity.kt # 采样文本 Activity（系统 TTS 集成）
 ├── GlobalException.kt           # 全局异常处理器和应用上下文持有者
@@ -66,7 +65,6 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 ├── service/                     # 服务层（TTS 引擎服务）
 │   ├── TalkifyTtsService.kt     # TTS 服务（继承 TextToSpeechService）
 │   ├── TalkifyTtsDemoService.kt # 语音预览服务
-│   ├── CompatibilityModePlayer.kt # 兼容模式专用播放器
 │   ├── TtsAudioPlayer.kt        # 内置音频播放器（流式播放 + 进度回调）
 │   ├── TtsErrorCode.kt          # 错误码定义（15种错误类型）
 │   ├── TtsErrorHelper.kt        # 错误处理助手
@@ -104,7 +102,6 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | **根目录/** | |
 | `MainActivity.kt` | 应用入口，Compose UI 启动点 |
 | `TalkifyApplication.kt` | Application 类（全局异常处理初始化 + 通知通道预创建） |
-| `TalkifyNotificationActivity.kt` | 全屏通知弹窗 Activity（heads-up 悬浮通知） |
 | `TalkifyCheckDataActivity.kt` | TTS 数据检查 Activity（系统 TTS 集成） |
 | `TalkifySampleTextActivity.kt` | 采样文本 Activity（系统 TTS 集成） |
 | `GlobalException.kt` | 全局异常处理器和应用上下文持有者 |
@@ -131,13 +128,11 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 | `TalkifyNotificationHelper.kt` | 快捷通知发送 Helper |
 | `NotificationHelper.kt` | 底层通知构建与发送工具 |
 | `NotificationModels.kt` | 通知通道枚举与数据模型 |
-| `TalkifyNotificationActivity.kt` | 全屏通知弹窗 Activity |
 | **update/** | |
 | `UpdateChecker.kt` | GitHub Releases API 调用与更新检查 |
 | **service/** | |
 | `TalkifyTtsService.kt` | TTS 服务（继承 TextToSpeechService） |
 | `TalkifyTtsDemoService.kt` | 语音预览服务 |
-| `CompatibilityModePlayer.kt` | 兼容模式专用播放器 |
 | `TtsAudioPlayer.kt` | 内置音频播放器（流式播放 + 进度回调） |
 | `TtsErrorCode.kt` | 错误码定义（15种错误类型） |
 | `TtsErrorHelper.kt` | 错误处理助手 |
@@ -167,17 +162,16 @@ app/src/main/java/com/github/lonepheasantwarrior/talkify/
 1. **引擎切换** - SegmentedButton 风格引擎选择
 2. **语音预览** - 文本输入 + 声音选择 + 播放控制
 3. **引擎配置** - API Key 管理 + 声音选择 + 持久化存储
-4. **系统 TTS** - 请求队列 + 速率控制 + 错误处理
-5. **兼容模式** - 同步播放模式，音频播放完成后再返回，以适配未完全遵守 Android TTS 调用规范的阅读软件
-6. **启动网络检查** - 权限检查 + 网络状态检测 + Android 16 兼容
-7. **检查更新** - GitHub Releases 自动检查 + Release Notes 展示 + 智能错误处理
-8. **全局异常处理** - 未捕获异常崩溃对话框 + 重启应用功能
-9. **错误消息传递** - 引擎层异常映射 + 服务到 UI 的错误状态传递
-10. **扩展错误码** - 15 种错误类型（含网络错误、通用错误）
-11. **系统通知** - heads-up 悬浮通知 + 全屏弹窗 Activity + TTS 错误即时提示
-12. **权限请求** - POST_NOTIFICATIONS + USE_FULL_SCREEN_INTENT 权限管理
-13. **UI 组件库** - EngineSelector、VoicePreview、ConfigEditor、ConfigBottomSheet、UpdateDialog、PermissionDialog、NetworkBlockedDialog
-14. **主题系统** - Material 3 Expressive 主题配置 + 颜色 + 字体排版
+4. **系统 TTS** - 同步处理 + 资源管理 + 错误处理
+5. **启动网络检查** - 权限检查 + 网络状态检测 + Android 16 兼容
+6. **检查更新** - GitHub Releases 自动检查 + Release Notes 展示 + 智能错误处理
+7. **全局异常处理** - 未捕获异常崩溃对话框 + 重启应用功能
+8. **错误消息传递** - 引擎层异常映射 + 服务到 UI 的错误状态传递
+9. **扩展错误码** - 15 种错误类型（含网络错误、通用错误）
+10. **系统通知** - heads-up 悬浮通知 + TTS 错误即时提示
+11. **权限请求** - POST_NOTIFICATIONS 权限管理
+12. **UI 组件库** - EngineSelector、VoicePreview、ConfigEditor、ConfigBottomSheet、UpdateDialog、PermissionDialog、NetworkBlockedDialog
+13. **主题系统** - Material 3 Expressive 主题配置 + 颜色 + 字体排版
 
 ## 构建
 
