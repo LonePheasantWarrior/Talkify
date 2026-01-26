@@ -1,6 +1,5 @@
 package com.github.lonepheasantwarrior.talkify.service
 
-import android.content.Context
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
@@ -41,36 +40,69 @@ private const val FOREGROUND_SERVICE_N_ID = 1001
  * 2. 获取用户配置的引擎设置
  * 3. 委托引擎执行实际的语音合成
  *
- * 采用仓储模式获取配置，支持多引擎切换
+ * 采用请求队列机制实现请求调度，支持请求优先级和流量控制
+ * 支持兼容模式和非兼容模式两种音频处理方式
  *
- * @property currentEngine 当前引擎实例
- * @property currentEngineId 当前引擎 ID
- * @property currentConfig 当前引擎配置
+ * @property serviceScope 服务协程作用域，用于管理异步任务生命周期
+ * @property requestQueue 待处理合成请求队列，采用阻塞队列实现线程安全
+ * @property processingSemaphore 请求处理信号量，限制并发处理数量为 1
+ * @property isStopped 服务停止标志，使用 AtomicBoolean 保证线程安全
+ * @property isSynthesisInProgress 合成进行中标志，用于状态追踪
+ * @property synthesisLatch 合成完成门闩，用于同步等待合成完成
+ * @property wakeLock 电源唤醒锁，防止合成过程中设备休眠
+ * @property isForegroundServiceRunning 前台服务运行状态
+ * @property activeCallback 当前活动的合成回调
+ * @property appConfigRepository 应用配置仓储，管理全局应用设置
+ * @property engineConfigRepository 引擎配置仓储，管理各引擎配置
+ * @property currentEngine 当前活动的 TTS 引擎实例
+ * @property currentEngineId 当前引擎的唯一标识符
+ * @property currentConfig 当前引擎的配置信息
+ * @property currentPlayer 兼容模式专用音频播放器实例
  */
 class TalkifyTtsService : TextToSpeechService() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    private val requestQueue = LinkedBlockingQueue<SynthesisRequestWrapper>()
-    private val processingSemaphore = Semaphore(1)
-    private var isStopped = AtomicBoolean(false)
-    private var isSynthesisInProgress = AtomicBoolean(false)
-    private var synthesisLatch: java.util.concurrent.CountDownLatch? = null
-    private var wakeLock: PowerManager.WakeLock? = null
-    private var isForegroundServiceRunning = false
-    private var activeCallback: android.speech.tts.SynthesisCallback? = null
-
-    private var appConfigRepository: AppConfigRepository? = null
-    private var engineConfigRepository: EngineConfigRepository? = null
-    private var currentEngine: TtsEngineApi? = null
-    private var currentEngineId: String? = null
-    private var currentConfig: EngineConfig? = null
-    private var currentPlayer: CompatibilityModePlayer? = null
-
+    /**
+     * 合成请求包装类
+     *
+     * 将系统 TTS 框架的请求和回调封装为统一格式，便于队列处理
+     *
+     * @property request 系统 TTS 合成请求
+     * @property callback 系统 TTS 合成回调
+     */
     private data class SynthesisRequestWrapper(
         val request: android.speech.tts.SynthesisRequest,
         val callback: android.speech.tts.SynthesisCallback
     )
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val requestQueue = LinkedBlockingQueue<SynthesisRequestWrapper>()
+
+    private val processingSemaphore = Semaphore(1)
+
+    private var isStopped = AtomicBoolean(false)
+
+    private var isSynthesisInProgress = AtomicBoolean(false)
+
+    private var synthesisLatch: java.util.concurrent.CountDownLatch? = null
+
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private var isForegroundServiceRunning = false
+
+    private var activeCallback: android.speech.tts.SynthesisCallback? = null
+
+    private var appConfigRepository: AppConfigRepository? = null
+
+    private var engineConfigRepository: EngineConfigRepository? = null
+
+    private var currentEngine: TtsEngineApi? = null
+
+    private var currentEngineId: String? = null
+
+    private var currentConfig: EngineConfig? = null
+
+    private var currentPlayer: CompatibilityModePlayer? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -89,7 +121,7 @@ class TalkifyTtsService : TextToSpeechService() {
      * 设置为部分唤醒锁，最长持有 10 分钟
      */
     private fun initializeWakeLock() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "Talkify:TtsServiceWakeLock"
