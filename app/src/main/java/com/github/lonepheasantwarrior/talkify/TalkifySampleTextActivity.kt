@@ -4,9 +4,11 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 
 class TalkifySampleTextActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        TtsLogger.d("GET_SAMPLE_TEXT: there is TalkifySampleTextActivity")
         super.onCreate(savedInstanceState)
 
         // 1. 获取系统请求的语言信息
