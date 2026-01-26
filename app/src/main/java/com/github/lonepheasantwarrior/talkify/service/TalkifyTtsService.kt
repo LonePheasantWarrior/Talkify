@@ -1,6 +1,8 @@
 package com.github.lonepheasantwarrior.talkify.service
 
+import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
@@ -142,7 +144,15 @@ class TalkifyTtsService : TextToSpeechService() {
      */
     private fun startForegroundService() {
         if (!isForegroundServiceRunning) {
-            startForeground(FOREGROUND_SERVICE_N_ID, TalkifyNotificationHelper.buildForegroundWithNotification(this))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    FOREGROUND_SERVICE_N_ID,
+                    TalkifyNotificationHelper.buildForegroundWithNotification(this),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(FOREGROUND_SERVICE_N_ID, TalkifyNotificationHelper.buildForegroundWithNotification(this))
+            }
             isForegroundServiceRunning = true
             TtsLogger.d("Foreground service started")
         }
@@ -346,7 +356,7 @@ class TalkifyTtsService : TextToSpeechService() {
         }
 
         if (isLanguageSupported(locale.language)) {
-            TtsLogger.i("onIsLanguageAvailable: TextToSpeech.LANG_AVAILABLE [lang: $lang, country: $country, variant: $variant]")
+            TtsLogger.d("onIsLanguageAvailable: TextToSpeech.LANG_AVAILABLE [lang: $lang, country: $country, variant: $variant]")
             return TextToSpeech.LANG_AVAILABLE
         }
         TtsLogger.w("onIsLanguageAvailable: not support language [${locale.language}]")
@@ -364,7 +374,7 @@ class TalkifyTtsService : TextToSpeechService() {
         // 2. 映射表：将所有常见的三字母 ISO 639-2/3 代码映射到你的双字母标准上
         val normalizedCode = when (val code = lang.lowercase().trim()) {
             // 中文映射
-            "zho", "chi", "zh_CN" -> "zh"
+            "zho", "chi", "zh-cn" -> "zh"
             // 英文映射
             "eng" -> "en"
             // 德语映射
@@ -459,7 +469,6 @@ class TalkifyTtsService : TextToSpeechService() {
     }
 
     override fun onGetLanguage(): Array<String>? {
-        TtsLogger.d("onGetLanguage: it is")
         val engine = currentEngine
         if (engine == null) {
             TtsLogger.w("onGetLanguage: no engine available")
@@ -474,7 +483,10 @@ class TalkifyTtsService : TextToSpeechService() {
             return null
         }
 
-        return currentEngine?.getDefaultLanguages()
+        val defaultLanguages = currentEngine?.getDefaultLanguages()
+        TtsLogger.d("onGetLanguage: return $defaultLanguages")
+
+        return defaultLanguages
     }
 
     override fun onGetVoices(): List<Voice?>? {
@@ -488,7 +500,13 @@ class TalkifyTtsService : TextToSpeechService() {
         variant: String?
     ): String? {
         TtsLogger.d("onGetDefaultVoiceNameFor: lang: $lang, country: $country, variant: $variant")
-        return currentEngine?.getDefaultVoiceId(lang, country, variant)
+        var currentVoiceId: String? = null
+        if (currentConfig != null && currentConfig!!.voiceId.isNotBlank()) {
+            currentVoiceId = currentConfig!!.voiceId
+        }
+        val defaultVoiceName = currentEngine?.getDefaultVoiceId(lang, country, variant, currentVoiceId)
+        TtsLogger.d("onGetDefaultVoiceNameFor: defaultVoiceName: $defaultVoiceName")
+        return defaultVoiceName
     }
 
     /**
@@ -585,6 +603,11 @@ class TalkifyTtsService : TextToSpeechService() {
                 callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
                 TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_config_not_ready))
                 return
+            }
+            if (config.voiceId.isNotBlank() && request.voiceName.isNotBlank()) {
+                if (config.voiceId != request.voiceName) {
+                    TtsLogger.w("Synthesize: SynthesisRequest.voiceName: ${request.voiceName}, EngineConfig.voiceId: ${config.voiceId}")
+                }
             }
 
             val params = SynthesisParams(

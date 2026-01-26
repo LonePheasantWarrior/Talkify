@@ -1,6 +1,5 @@
 package com.github.lonepheasantwarrior.talkify.service.engine.impl
 
-import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
 import android.util.Base64
 import com.alibaba.dashscope.aigc.multimodalconversation.AudioParameters
@@ -44,6 +43,8 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         private const val DEFAULT_LANGUAGE = "Auto"
 
         private const val MAX_TEXT_LENGTH = 500
+
+        private const val VOICE_NAME_SEPARATOR = "::"
     }
 
     @Volatile
@@ -399,12 +400,12 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     }
 
     override fun getSupportedLanguages(): Set<String> {
-        return setOf("zh", "zh_CN", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru")
+        return setOf("zho", "zh", "zh-CN", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru")
     }
 
     override fun getDefaultLanguages(): Array<String> {
         // 必须按照 [Language, Country, Variant] 的顺序返回
-        return arrayOf("zho", "CHN", "")
+        return arrayOf(Locale.SIMPLIFIED_CHINESE.isO3Language, Locale.SIMPLIFIED_CHINESE.isO3Country, "")
     }
 
     override fun getSupportedVoices(): List<Voice> {
@@ -414,7 +415,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
             for (engineVoice in AudioParameters.Voice.entries) {
                 voices.add(
                     Voice(
-                        engineVoice.value,
+                        "${engineVoice.value}$VOICE_NAME_SEPARATOR$langCode",
                         Locale.forLanguageTag(langCode),
                         Voice.QUALITY_NORMAL,
                         Voice.LATENCY_NORMAL,
@@ -427,15 +428,31 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         return voices
     }
 
-    override fun getDefaultVoiceId(lang: String?, country: String?, variant: String?): String {
-        return AudioParameters.Voice.CHERRY.value
+    override fun getDefaultVoiceId(lang: String?, country: String?, variant: String?, currentVoiceId: String?): String {
+        if (currentVoiceId != null && currentVoiceId.isNotBlank()) {
+            return "$currentVoiceId$VOICE_NAME_SEPARATOR$lang"
+        }
+        return "${AudioParameters.Voice.CHERRY.value}$VOICE_NAME_SEPARATOR$lang"
     }
 
     override fun isVoiceIdCorrect(voiceId: String?): Boolean {
         if (voiceId == null) {
             return false
         }
-        return AudioParameters.Voice.entries.any { it.value == voiceId }
+        return AudioParameters.Voice.entries.any { it.value == extractRealVoiceName(voiceId) }
+    }
+
+    /**
+     * 从 Android 复合名中提取真实的云端 VoiceId
+     */
+    private fun extractRealVoiceName(androidVoiceName: String?): String? {
+        if (androidVoiceName == null) return null
+        // 如果名字包含分隔符，切分取第一部分；如果不包含，直接返回原名（兼容性）
+        return if (androidVoiceName.contains(VOICE_NAME_SEPARATOR)) {
+            androidVoiceName.substringBefore(VOICE_NAME_SEPARATOR)
+        } else {
+            androidVoiceName
+        }
     }
 
     override fun stop() {

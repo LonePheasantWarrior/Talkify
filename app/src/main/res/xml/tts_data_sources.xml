@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <tts-data-sources xmlns:android="http://schemas.android.com/apk/res/android">
     <data-source android:name="text" />
-    <data-source android:name="accessibility" />
+
+    <data-source android:name="network" />
 </tts-data-sources>

@@ -106,7 +106,7 @@ interface TtsEngineApi {
     /**
      * 获取引擎的默认声音ID
      */
-    fun getDefaultVoiceId(lang: String?, country: String?, variant: String?): String
+    fun getDefaultVoiceId(lang: String?, country: String?, variant: String?, currentVoiceId: String?): String
 
     /**
      * 检查引擎是否支持目标声音ID（声音 ID 是否合法）
