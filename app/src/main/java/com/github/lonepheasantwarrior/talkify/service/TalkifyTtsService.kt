@@ -1,5 +1,6 @@
 package com.github.lonepheasantwarrior.talkify.service
 
+import android.net.wifi.WifiManager
 import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
@@ -16,13 +17,7 @@ import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import java.util.Locale
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -43,15 +38,12 @@ private const val FOREGROUND_SERVICE_N_ID = 1001
  * 采用请求队列机制实现请求调度，支持请求优先级和流量控制
  * 支持兼容模式和非兼容模式两种音频处理方式
  *
- * @property serviceScope 服务协程作用域，用于管理异步任务生命周期
- * @property requestQueue 待处理合成请求队列，采用阻塞队列实现线程安全
  * @property processingSemaphore 请求处理信号量，限制并发处理数量为 1
  * @property isStopped 服务停止标志，使用 AtomicBoolean 保证线程安全
  * @property isSynthesisInProgress 合成进行中标志，用于状态追踪
  * @property synthesisLatch 合成完成门闩，用于同步等待合成完成
  * @property wakeLock 电源唤醒锁，防止合成过程中设备休眠
  * @property isForegroundServiceRunning 前台服务运行状态
- * @property activeCallback 当前活动的合成回调
  * @property appConfigRepository 应用配置仓储，管理全局应用设置
  * @property engineConfigRepository 引擎配置仓储，管理各引擎配置
  * @property currentEngine 当前活动的 TTS 引擎实例
@@ -60,23 +52,6 @@ private const val FOREGROUND_SERVICE_N_ID = 1001
  * @property currentPlayer 兼容模式专用音频播放器实例
  */
 class TalkifyTtsService : TextToSpeechService() {
-
-    /**
-     * 合成请求包装类
-     *
-     * 将系统 TTS 框架的请求和回调封装为统一格式，便于队列处理
-     *
-     * @property request 系统 TTS 合成请求
-     * @property callback 系统 TTS 合成回调
-     */
-    private data class SynthesisRequestWrapper(
-        val request: android.speech.tts.SynthesisRequest,
-        val callback: android.speech.tts.SynthesisCallback
-    )
-
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    private val requestQueue = LinkedBlockingQueue<SynthesisRequestWrapper>()
 
     private val processingSemaphore = Semaphore(1)
 
@@ -88,9 +63,12 @@ class TalkifyTtsService : TextToSpeechService() {
 
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private var isForegroundServiceRunning = false
+    private val wifiLock: WifiManager.WifiLock by lazy {
+        val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "Talkify:WifiLock")
+    }
 
-    private var activeCallback: android.speech.tts.SynthesisCallback? = null
+    private var isForegroundServiceRunning = false
 
     private var appConfigRepository: AppConfigRepository? = null
 
@@ -111,7 +89,6 @@ class TalkifyTtsService : TextToSpeechService() {
         initializeRepositories()
         val engineInitSuccess = initializeEngine()
         TtsLogger.d("Engine initialization result: $engineInitSuccess")
-        startRequestProcessor()
     }
 
     /**
@@ -129,6 +106,35 @@ class TalkifyTtsService : TextToSpeechService() {
             setReferenceCounted(false)
         }
         TtsLogger.d("WakeLock initialized")
+    }
+
+    /**
+     * 获取 WifiLock
+     * 确保在合成期间 WiFi 保持高性能模式
+     */
+    private fun acquireWifiLock() {
+        try {
+            if (!wifiLock.isHeld) {
+                wifiLock.acquire()
+                TtsLogger.d("WifiLock acquired")
+            }
+        } catch (e: Exception) {
+            TtsLogger.e("Failed to acquire WifiLock", e)
+        }
+    }
+
+    /**
+     * 释放 WifiLock
+     */
+    private fun releaseWifiLock() {
+        try {
+            if (wifiLock.isHeld) {
+                wifiLock.release()
+                TtsLogger.d("WifiLock released")
+            }
+        } catch (e: Exception) {
+            TtsLogger.e("Failed to release WifiLock", e)
+        }
     }
 
     /**
@@ -187,136 +193,6 @@ class TalkifyTtsService : TextToSpeechService() {
         }
     }
 
-    /**
-     * 启动请求处理器
-     *
-     * 在协程中持续从请求队列中取出合成请求并处理
-     * 循环运行直到服务停止
-     */
-    private fun startRequestProcessor() {
-        serviceScope.launch {
-            while (!isStopped.get()) {
-                try {
-                    val wrapper = requestQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    if (wrapper != null) {
-                        processingSemaphore.acquire()
-                        processRequestInternal(wrapper)
-                    }
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                } catch (e: Exception) {
-                    TtsLogger.e("Critical error in request processor", e)
-                    try {
-                        Thread.sleep(1000)
-                    } catch (_: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 内部请求处理方法
-     *
-     * 处理单个合成请求，包括参数验证、引擎调用和回调通知
-     * 完成后释放信号量
-     *
-     * @param wrapper 包含请求和回调的包装对象
-     */
-    private fun processRequestInternal(wrapper: SynthesisRequestWrapper) {
-        val (request, callback) = wrapper
-
-        if (isStopped.get()) {
-            TtsLogger.d("processRequestInternal: service is stopped, skipping request")
-            callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
-            processingSemaphore.release()
-            return
-        }
-
-        val text = request.charSequenceText?.toString()
-
-        if (text.isNullOrBlank()) {
-            TtsLogger.w("processRequestInternal: empty text")
-            callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
-            processingSemaphore.release()
-            return
-        }
-
-        TtsLogger.d("processRequestInternal: text length = ${text.length}")
-
-        acquireWakeLock()
-        activeCallback = callback
-
-        val engineId = currentEngineId
-        if (engineId == null) {
-            TtsLogger.e("processRequestInternal: no engine ID available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_engine_id_available))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_FOUND))
-            processingSemaphore.release()
-            return
-        }
-
-        val engine = currentEngine
-        if (engine == null) {
-            TtsLogger.e("processRequestInternal: no engine available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_engine))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
-            processingSemaphore.release()
-            return
-        }
-
-        val config = engineConfigRepository?.getConfig(engineId)
-        if (config == null) {
-            TtsLogger.e("processRequestInternal: no config available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_config_available))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_CONFIG_NOT_FOUND))
-            processingSemaphore.release()
-            return
-        }
-
-        if (!engine.isConfigured(config)) {
-            TtsLogger.w("processRequestInternal: engine not configured")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_engine_not_configured))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
-            processingSemaphore.release()
-            return
-        }
-
-        val params = SynthesisParams(
-            pitch = request.pitch.toFloat(),
-            speechRate = request.speechRate.toFloat(),
-            volume = 1.0f,
-            language = request.language
-        )
-
-        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() ?: false
-
-        try {
-            val audioConfig = engine.getAudioConfig()
-            callback.start(
-                audioConfig.sampleRate,
-                audioConfig.audioFormat,
-                audioConfig.channelCount
-            )
-            TtsLogger.d("Synthesis started, compatibilityMode=$isCompatibilityMode")
-
-            if (isCompatibilityMode) {
-                processWithCompatibilityMode(text, params, config, audioConfig, callback)
-            } else {
-                processWithoutCompatibilityMode(text, params, config, callback)
-            }
-        } catch (e: Exception) {
-            TtsLogger.e("Synthesis failed", e)
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
-            releaseWakeLock()
-            stopForegroundServiceIfIdle()
-            processingSemaphore.release()
-        }
-    }
 
     /**
      * 在空闲时停止前台服务
@@ -325,149 +201,10 @@ class TalkifyTtsService : TextToSpeechService() {
      * 减少后台资源占用
      */
     private fun stopForegroundServiceIfIdle() {
-        if (!requestQueue.isEmpty() || processingSemaphore.availablePermits() == 0) {
+        if (processingSemaphore.availablePermits() == 0) {
             return
         }
         stopForegroundService()
-    }
-
-    /**
-     * 使用兼容模式处理合成请求
-     *
-     * 兼容模式会等待音频完全播放后才完成回调
-     * 适用于需要音频输出到扬声器的场景
-     *
-     * @param text 要合成的文本
-     * @param params 合成参数
-     * @param config 引擎配置
-     * @param audioConfig 音频配置
-     * @param callback 合成回调
-     */
-    private fun processWithCompatibilityMode(
-        text: String,
-        params: SynthesisParams,
-        config: EngineConfig,
-        audioConfig: com.github.lonepheasantwarrior.talkify.service.engine.AudioConfig,
-        callback: android.speech.tts.SynthesisCallback
-    ) {
-        val engine = currentEngine ?: run {
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
-            processingSemaphore.release()
-            return
-        }
-
-        if (currentPlayer == null) {
-            currentPlayer = CompatibilityModePlayer(audioConfig)
-            if (currentPlayer?.initialize() != true) {
-                TtsLogger.e("Failed to initialize compatibility player")
-                callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
-                processingSemaphore.release()
-                return
-            }
-        }
-
-        val player = currentPlayer!!
-
-        startForegroundService()
-        engine.synthesize(text, params, config, object : TtsSynthesisListener {
-            override fun onSynthesisStarted() {
-                TtsLogger.d("Compatibility mode: synthesis started")
-            }
-
-            override fun onAudioAvailable(
-                audioData: ByteArray,
-                sampleRate: Int,
-                audioFormat: Int,
-                channelCount: Int
-            ) {
-                val maxChunkSize = 4096
-                var offset = 0
-                while (offset < audioData.size) {
-                    val chunkSize = minOf(maxChunkSize, audioData.size - offset)
-                    val chunk = audioData.copyOfRange(offset, offset + chunkSize)
-                    callback.audioAvailable(chunk, 0, chunk.size)
-                    offset += chunkSize
-                }
-                player.playAllAndWait(audioData)
-            }
-
-            override fun onSynthesisCompleted() {
-                TtsLogger.d("Compatibility mode: synthesis completed, waiting for playback")
-            }
-
-            override fun onError(error: String) {
-                TtsLogger.e("Compatibility mode: synthesis error: $error")
-                val errorCode = inferErrorCodeFromMessage(error)
-                callback.error(TtsErrorCode.toAndroidError(errorCode))
-                releaseWakeLock()
-                stopForegroundServiceIfIdle()
-                processingSemaphore.release()
-            }
-        })
-    }
-
-    /**
-     * 使用非兼容模式处理合成请求
-     *
-     * 非兼容模式直接返回音频数据，不等待播放完成
-     * 适用于音频流直接写入 AudioTrack 的场景
-     *
-     * @param text 要合成的文本
-     * @param params 合成参数
-     * @param config 引擎配置
-     * @param callback 合成回调
-     */
-    private fun processWithoutCompatibilityMode(
-        text: String,
-        params: SynthesisParams,
-        config: EngineConfig,
-        callback: android.speech.tts.SynthesisCallback
-    ) {
-        val engine = currentEngine ?: run {
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
-            processingSemaphore.release()
-            return
-        }
-
-        startForegroundService()
-        engine.synthesize(text, params, config, object : TtsSynthesisListener {
-            override fun onSynthesisStarted() {
-                TtsLogger.d("Synthesis started callback")
-            }
-
-            override fun onAudioAvailable(
-                audioData: ByteArray,
-                sampleRate: Int,
-                audioFormat: Int,
-                channelCount: Int
-            ) {
-                val maxChunkSize = 4096
-                var offset = 0
-                while (offset < audioData.size) {
-                    val chunkSize = minOf(maxChunkSize, audioData.size - offset)
-                    val chunk = audioData.copyOfRange(offset, offset + chunkSize)
-                    callback.audioAvailable(chunk, 0, chunk.size)
-                    offset += chunkSize
-                }
-            }
-
-            override fun onSynthesisCompleted() {
-                TtsLogger.d("Synthesis completed")
-                callback.done()
-                releaseWakeLock()
-                stopForegroundServiceIfIdle()
-                processingSemaphore.release()
-            }
-
-            override fun onError(error: String) {
-                TtsLogger.e("Synthesis error: $error")
-                val errorCode = inferErrorCodeFromMessage(error)
-                callback.error(TtsErrorCode.toAndroidError(errorCode))
-                releaseWakeLock()
-                stopForegroundServiceIfIdle()
-                processingSemaphore.release()
-            }
-        })
     }
 
     /**
@@ -800,118 +537,84 @@ class TalkifyTtsService : TextToSpeechService() {
             return
         }
 
-        val isCompatibilityMode = appConfigRepository?.isCompatibilityModeEnabled() ?: false
-
-        if (isCompatibilityMode) {
-            TtsLogger.d("onSynthesizeText[CompatibilityMode]: queuing text: ${request.charSequenceText}")
-            processRequestSynchronously(request, callback)
-        } else {
-            TtsLogger.d("onSynthesizeText:  queue size = ${requestQueue.size + 1}, text: ${request.charSequenceText},")
-            requestQueue.put(SynthesisRequestWrapper(request, callback))
-        }
+        TtsLogger.d("onSynthesizeText: queuing text: ${request.charSequenceText}")
+        processRequestSynchronously(request, callback)
     }
 
     /**
-     * 同步处理合成请求
+     * 同步处理合成请求 (修复版)
      *
-     * 兼容模式下同步处理单个请求，等待音频完全播放后才返回
-     * 用于需要音频输出到扬声器的场景
-     *
-     * @param request 合成请求
-     * @param callback 合成回调
+     * 直接在当前线程阻塞等待合成结果，符合 Android TTS Service 标准生命周期。
+     * 修复了死锁隐患，并增加了 WifiLock 以保证网络流式传输的稳定性。
      */
     private fun processRequestSynchronously(
         request: android.speech.tts.SynthesisRequest,
         callback: android.speech.tts.SynthesisCallback
     ) {
+        // 1. 基础校验
         if (isStopped.get()) {
-            TtsLogger.d("processRequestSynchronously: service is stopped, skipping request")
             callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
             return
         }
 
         val text = request.charSequenceText?.toString()
-
         if (text.isNullOrBlank()) {
-            TtsLogger.w("processRequestSynchronously: empty text")
-            callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
+            callback.done()
             return
         }
 
-        TtsLogger.d("processRequestSynchronously: compatibility mode, text length = ${text.length}")
-
-        if (isSynthesisInProgress.getAndSet(true)) {
-            TtsLogger.d("processRequestSynchronously: synthesis in progress, stopping current playback")
-            currentPlayer?.stop()
-            synthesisLatch = null
-        }
-
+        // 2. 获取双重锁：WakeLock (CPU) + WifiLock (网络)
+        // 这一步对于 Play 图书这种可能在后台/关屏播放的场景至关重要
         acquireWakeLock()
+        acquireWifiLock()
 
-        val engineId = currentEngineId
-        if (engineId == null) {
-            TtsLogger.e("processRequestSynchronously: no engine ID available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_engine_id_available))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_FOUND))
-            return
-        }
-
-        val engine = currentEngine
-        if (engine == null) {
-            TtsLogger.e("processRequestSynchronously: no engine available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_engine))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
-            return
-        }
-
-        val config = engineConfigRepository?.getConfig(engineId)
-        if (config == null) {
-            TtsLogger.e("processRequestSynchronously: no config available")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_no_config_available))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_CONFIG_NOT_FOUND))
-            return
-        }
-
-        if (!engine.isConfigured(config)) {
-            TtsLogger.w("processRequestSynchronously: engine not configured")
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_engine_not_configured))
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
-            return
-        }
-
-        val params = SynthesisParams(
-            pitch = request.pitch.toFloat(),
-            speechRate = request.speechRate.toFloat(),
-            volume = 1.0f,
-            language = request.language
-        )
+        // 提升前台优先级，防止被系统查杀
+        startForegroundService()
 
         try {
+            // 3. 准备引擎与配置
+            val engineId = currentEngineId
+            val engine = currentEngine
+            if (engineId == null || engine == null) {
+                TtsLogger.e("processRequestSynchronously: engine not ready")
+                callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
+                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_engine_not_ready))
+                return
+            }
+
+            val config = engineConfigRepository?.getConfig(engineId)
+            if (config == null || !engine.isConfigured(config)) {
+                TtsLogger.e("processRequestSynchronously: config not ready")
+                callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
+                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_config_not_ready))
+                return
+            }
+
+            val params = SynthesisParams(
+                pitch = request.pitch.toFloat(),
+                speechRate = request.speechRate.toFloat(),
+                volume = 1.0f,
+                language = request.language
+            )
+
+            // 4. 初始化音频参数并通知系统开始
             val audioConfig = engine.getAudioConfig()
+            // 必须在写入任何数据前调用 start，否则会报 -1 错误
             callback.start(
                 audioConfig.sampleRate,
                 audioConfig.audioFormat,
                 audioConfig.channelCount
             )
 
-            if (currentPlayer == null) {
-                currentPlayer = CompatibilityModePlayer(audioConfig)
-                if (currentPlayer?.initialize() != true) {
-                    TtsLogger.e("Failed to initialize compatibility player")
-                    callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
-                    return
-                }
-            }
-
-            val player = currentPlayer!!
-
+            // 5. 设置同步门闩 (Latch)
+            // 我们需要阻塞当前函数，直到 callback.done() 被调用
             synthesisLatch = java.util.concurrent.CountDownLatch(1)
-            var synthesisError: String? = null
+            var synthesisError: Int? = null
 
-            startForegroundService()
+            // 6. 执行合成
             engine.synthesize(text, params, config, object : TtsSynthesisListener {
                 override fun onSynthesisStarted() {
-                    TtsLogger.d("processRequestSynchronously: synthesis started")
+                    TtsLogger.d("Synthesis started callback")
                 }
 
                 override fun onAudioAvailable(
@@ -920,50 +623,75 @@ class TalkifyTtsService : TextToSpeechService() {
                     audioFormat: Int,
                     channelCount: Int
                 ) {
-                    player.playAllAndWait(audioData)
+                    // 直接将音频数据分块写入系统回调
+                    val maxChunkSize = 4096
+                    var offset = 0
+                    while (offset < audioData.size) {
+                        val chunkSize = minOf(maxChunkSize, audioData.size - offset)
+                        val chunk = audioData.copyOfRange(offset, offset + chunkSize)
+                        // 注意：如果 callback 失效，这里会抛出异常，会被外层 catch 捕获，这是安全的
+                        callback.audioAvailable(chunk, 0, chunk.size)
+                        offset += chunkSize
+                    }
                 }
 
                 override fun onSynthesisCompleted() {
-                    TtsLogger.d("processRequestSynchronously: synthesis completed")
+                    TtsLogger.d("Synthesis completed")
+                    // 关键修复：必须解锁主流程
                     synthesisLatch?.countDown()
                 }
 
                 override fun onError(error: String) {
-                    TtsLogger.e("processRequestSynchronously: synthesis error: $error")
-                    synthesisError = error
+                    TtsLogger.e("Synthesis error: $error")
+                    synthesisError = inferErrorCodeFromMessage(error)
+                    // 关键修复：发生错误也必须解锁，否则会导致服务假死 2 分钟
                     synthesisLatch?.countDown()
                 }
             })
 
-            try {
-                synthesisLatch?.await(120, java.util.concurrent.TimeUnit.SECONDS)
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                isSynthesisInProgress.set(false)
-                releaseWakeLock()
-                stopForegroundService()
-                callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
-                return
+            // 7. 阻塞等待
+            // Play Books 会在这里卡住等待，直到合成完成或超时
+            // 设置 120 秒超时防止网络永久挂起
+            val finished = synthesisLatch?.await(120, java.util.concurrent.TimeUnit.SECONDS)
+
+            if (finished == true) {
+                if (synthesisError != null) {
+                    // 确实发生了错误
+                    callback.error(TtsErrorCode.toAndroidError(synthesisError))
+                    TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+                } else {
+                    // 正常完成
+                    callback.done()
+                }
+            } else {
+                // 等待超时
+                TtsLogger.e("Synthesis timed out waiting for latch")
+                // 尝试终止引擎请求
+                try { engine.stop() } catch (_: Exception) {}
+                callback.error(TextToSpeech.ERROR_NETWORK_TIMEOUT)
+                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
             }
 
-            isSynthesisInProgress.set(false)
-            releaseWakeLock()
-            stopForegroundService()
-            if (synthesisError != null) {
-                val code = inferErrorCodeFromMessage(synthesisError)
-                callback.error(TtsErrorCode.toAndroidError(code))
-            } else {
-                callback.done()
-            }
-        } catch (e: Exception) {
-            TtsLogger.e("processRequestSynchronously: Synthesis failed", e)
+        } catch (_: InterruptedException) {
+            TtsLogger.w("Synthesis interrupted")
+            callback.error(TextToSpeech.ERROR_SERVICE)
             TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+            Thread.currentThread().interrupt()
+        } catch (e: Exception) {
+            TtsLogger.e("Critical error in processRequestSynchronously", e)
+            callback.error(TextToSpeech.ERROR_SYNTHESIS)
+            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+        } finally {
+            // 8. 统一清理资源
+            // 无论成功还是失败，都要释放锁，防止耗电
+            synthesisLatch = null
             isSynthesisInProgress.set(false)
+            stopForegroundServiceIfIdle()
+            releaseWifiLock()
             releaseWakeLock()
-            stopForegroundService()
-            callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
         }
     }
+
 
     override fun onDestroy() {
         TtsLogger.i("TalkifyTtsService onDestroy")
@@ -995,7 +723,6 @@ class TalkifyTtsService : TextToSpeechService() {
             TtsLogger.e("Error releasing player", e)
         }
         currentPlayer = null
-        serviceScope.cancel()
         releaseWakeLock()
         stopForegroundService()
         super.onDestroy()
@@ -1035,7 +762,6 @@ class TalkifyTtsService : TextToSpeechService() {
         }
         currentPlayer = null
 
-        requestQueue.clear()
         if (processingSemaphore.availablePermits() == 0) {
             processingSemaphore.release()
         }

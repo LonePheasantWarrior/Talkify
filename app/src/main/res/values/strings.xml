@@ -51,7 +51,9 @@
     <string name="tts_error_no_engine">未找到可用的 TTS 引擎</string>
     <string name="tts_error_engine_not_found">引擎不存在</string>
     <string name="tts_error_engine_not_configured">合成引擎未配置</string>
+    <string name="tts_error_config_not_ready">请完成Talkify参数设置</string>
     <string name="tts_error_no_engine_id_available">合成引擎未选择</string>
+    <string name="tts_error_engine_not_ready">合成引擎未初始化</string>
     <string name="tts_error_synthesis_failed">语音合成失败</string>
     <string name="tts_error_network_unavailable">网络不可用，请检查网络连接</string>
     <string name="tts_error_invalid_request">无效的合成请求</string>
