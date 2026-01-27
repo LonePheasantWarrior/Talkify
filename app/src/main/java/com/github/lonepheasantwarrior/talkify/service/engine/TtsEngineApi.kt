@@ -52,7 +52,7 @@ interface TtsEngineApi {
      * @param config 引擎配置
      * @return 是否已配置
      */
-    fun isConfigured(config: EngineConfig): Boolean
+    fun isConfigured(config: EngineConfig?): Boolean
 
     /**
      * 合成语音

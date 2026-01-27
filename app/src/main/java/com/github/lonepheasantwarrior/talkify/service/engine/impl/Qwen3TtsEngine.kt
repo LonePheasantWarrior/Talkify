@@ -12,6 +12,7 @@ import com.alibaba.dashscope.exception.UploadFileException
 import com.alibaba.dashscope.utils.Constants
 import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.service.TtsErrorCode
+import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import com.github.lonepheasantwarrior.talkify.service.engine.AbstractTtsEngine
 import com.github.lonepheasantwarrior.talkify.service.engine.AudioConfig
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
@@ -468,5 +469,14 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         currentDisposable?.dispose()
         currentDisposable = null
         super.release()
+    }
+
+    override fun isConfigured(config: EngineConfig?): Boolean {
+        var result = false
+        if (config != null) {
+            result = config.apiKey.isNotBlank()
+        }
+        TtsLogger.d("$tag: isConfigured = $result")
+        return result
     }
 }

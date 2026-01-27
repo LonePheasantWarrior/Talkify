@@ -475,17 +475,13 @@ class TalkifyTtsService : TextToSpeechService() {
             return null
         }
 
-        val config = currentConfig
-        val isAvailable = config?.apiKey?.isNotBlank() == true
-
-        if (!isAvailable) {
+        if (!engine.isConfigured(currentConfig)) {
             TtsLogger.w("onGetLanguage: engine not configured")
             return null
         }
 
-        val defaultLanguages = currentEngine?.getDefaultLanguages()
+        val defaultLanguages = engine.getDefaultLanguages()
         TtsLogger.d("onGetLanguage: return $defaultLanguages")
-
         return defaultLanguages
     }
 

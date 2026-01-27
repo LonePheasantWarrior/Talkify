@@ -18,12 +18,6 @@ abstract class AbstractTtsEngine : TtsEngineApi {
     protected open val tag: String
         get() = javaClass.simpleName
 
-    override fun isConfigured(config: EngineConfig): Boolean {
-        val result = config.apiKey.isNotBlank()
-        TtsLogger.d("$tag: isConfigured = $result")
-        return result
-    }
-
     override fun stop() {
         TtsLogger.d("$tag: stop called")
     }
