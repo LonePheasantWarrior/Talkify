@@ -20,7 +20,7 @@ class SeedTts2VoiceRepository(
     private val engineVoiceMap = mapOf(
         EngineIds.SeedTts2.value to VoiceConfig(
             voiceIdsResId = R.array.volcengine_seed_TTS_2_voices,
-            displayNamesResId = R.array.volcengine_seed_TTS_2_voice_display_names
+            displayNamesResId = R.array.volcengine_seed_TTS_2_voices_display_names
         )
     )
 
@@ -42,8 +42,47 @@ class SeedTts2VoiceRepository(
         }
     }
 
+    /**
+     * 获取声音详细信息（包含描述）
+     *
+     * @param engine 引擎信息
+     * @return 声音详细信息列表
+     */
+    fun getVoicesWithDescription(engine: TtsEngine): List<VoiceInfoWithDescription> {
+        val config = engineVoiceMap[engine.id] ?: return emptyList()
+
+        val voiceIds = context.resources.getStringArray(config.voiceIdsResId)
+        val displayNames = context.resources.getStringArray(config.displayNamesResId)
+        val descriptions = try {
+            context.resources.getStringArray(R.array.volcengine_seed_TTS_2_voices_descriptions)
+        } catch (e: Exception) {
+            emptyArray<String>()
+        }
+
+        if (voiceIds.size != displayNames.size) {
+            return emptyList()
+        }
+
+        return voiceIds.mapIndexed { index, voiceId ->
+            VoiceInfoWithDescription(
+                voiceId = voiceId,
+                displayName = displayNames[index],
+                description = descriptions.getOrNull(index) ?: ""
+            )
+        }
+    }
+
     private data class VoiceConfig(
         val voiceIdsResId: Int,
         val displayNamesResId: Int
+    )
+
+    /**
+     * 声音详细信息（含描述）
+     */
+    data class VoiceInfoWithDescription(
+        val voiceId: String,
+        val displayName: String,
+        val description: String
     )
 }

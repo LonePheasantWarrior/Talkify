@@ -2,6 +2,7 @@ package com.github.lonepheasantwarrior.talkify.service.engine.impl
 
 import android.speech.tts.Voice
 import com.github.lonepheasantwarrior.talkify.R
+import com.github.lonepheasantwarrior.talkify.TalkifyAppHolder
 import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.SeedTts2Config
 import com.github.lonepheasantwarrior.talkify.service.TtsErrorCode
@@ -39,6 +40,31 @@ class SeedTts2Engine : AbstractTtsEngine() {
 
     val audioConfig: AudioConfig
         @JvmName("getAudioConfigProperty") get() = AudioConfig.SEED_TTS2
+
+    /**
+     * 缓存的声音ID列表，从资源文件加载
+     */
+    private val voiceIds: List<String> by lazy {
+        loadVoiceIdsFromResource()
+    }
+
+    /**
+     * 从资源文件加载声音ID列表
+     */
+    private fun loadVoiceIdsFromResource(): List<String> {
+        val context = TalkifyAppHolder.getContext()
+        return if (context != null) {
+            try {
+                context.resources.getStringArray(R.array.volcengine_seed_TTS_2_voices).toList()
+            } catch (e: Exception) {
+                TtsLogger.e("Failed to load voice IDs from resource", throwable = e)
+                emptyList()
+            }
+        } else {
+            TtsLogger.w("Context not available, voice IDs will be empty")
+            emptyList()
+        }
+    }
 
     override fun getEngineId(): String = ENGINE_ID
 
@@ -88,15 +114,7 @@ class SeedTts2Engine : AbstractTtsEngine() {
 
     override fun getSupportedVoices(): List<Voice> {
         val voices = mutableListOf<Voice>()
-        // 豆包 TTS 2.0 支持的声音列表
-        val voiceIds = listOf(
-            "zh_female_tianmeitaozi_mars_bigtts",
-            "zh_female_cancan_mars_bigtts",
-            "zh_female_qingxinnvsheng_mars_bigtts",
-            "zh_female_shuangkuaisisi_moon_bigtts",
-            "zh_male_wennuanahu_moon_bigtts"
-        )
-
+        
         for (langCode in getSupportedLanguages()) {
             for (voiceId in voiceIds) {
                 voices.add(
@@ -120,19 +138,19 @@ class SeedTts2Engine : AbstractTtsEngine() {
         variant: String?, 
         currentVoiceId: String?
     ): String {
+        val defaultVoice = voiceIds.firstOrNull() ?: "zh_female_vv_uranus_bigtts"
         if (currentVoiceId != null && currentVoiceId.isNotBlank()) {
             return "$currentVoiceId$VOICE_NAME_SEPARATOR$lang"
         }
-        return "zh_female_tianmeitaozi_mars_bigtts$VOICE_NAME_SEPARATOR$lang"
+        return "$defaultVoice$VOICE_NAME_SEPARATOR$lang"
     }
 
     override fun isVoiceIdCorrect(voiceId: String?): Boolean {
         if (voiceId == null) {
             return false
         }
-        // 检查 voiceId 是否在支持的声音列表中
         val realVoiceName = extractRealVoiceName(voiceId)
-        return realVoiceName != null && realVoiceName.isNotBlank()
+        return realVoiceName != null && voiceIds.contains(realVoiceName)
     }
 
     private fun extractRealVoiceName(androidVoiceName: String?): String? {
