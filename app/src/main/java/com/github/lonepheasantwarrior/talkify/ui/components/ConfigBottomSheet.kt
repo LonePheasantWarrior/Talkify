@@ -30,6 +30,7 @@ import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.ConfigItem
 import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.SeedTts2Config
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngine
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceInfo
@@ -95,6 +96,10 @@ fun ConfigBottomSheet(
             is Qwen3TtsConfig -> {
                 val qwenSaved = savedConfig as? Qwen3TtsConfig
                 if (qwenSaved != null) qwenSaved else defaultConfig
+            }
+            is SeedTts2Config -> {
+                val seedSaved = savedConfig as? SeedTts2Config
+                if (seedSaved != null) seedSaved else defaultConfig
             }
             else -> defaultConfig
         }
@@ -229,6 +234,30 @@ private fun buildConfigItems(
                 )
             }
         }
+        is SeedTts2Config -> {
+            val appIdLabel = getLabel("app_id")
+            if (appIdLabel != null) {
+                items.add(
+                    ConfigItem(
+                        key = "app_id",
+                        label = appIdLabel,
+                        value = config.appId,
+                        isPassword = false
+                    )
+                )
+            }
+            val accessKeyLabel = getLabel("access_key")
+            if (accessKeyLabel != null) {
+                items.add(
+                    ConfigItem(
+                        key = "access_key",
+                        label = accessKeyLabel,
+                        value = config.accessKey,
+                        isPassword = true
+                    )
+                )
+            }
+        }
     }
 
     val voiceLabel = getLabel("voice_id")
@@ -257,6 +286,15 @@ private fun buildConfigFromItems(
             val apiKey = items.find { it.key == "api_key" }?.value ?: ""
             Qwen3TtsConfig(
                 apiKey = apiKey,
+                voiceId = voiceId
+            )
+        }
+        is SeedTts2Config -> {
+            val appId = items.find { it.key == "app_id" }?.value ?: ""
+            val accessKey = items.find { it.key == "access_key" }?.value ?: ""
+            SeedTts2Config(
+                appId = appId,
+                accessKey = accessKey,
                 voiceId = voiceId
             )
         }

@@ -25,6 +25,7 @@ object TtsErrorCode {
     const val ERROR_API_RATE_LIMITED = 1102
     const val ERROR_API_SERVER_ERROR = 1103
     const val ERROR_API_AUTH_FAILED = 1104
+    const val ERROR_NOT_IMPLEMENTED = 1105
 
     fun getErrorMessage(errorCode: Int): String {
         return when (errorCode) {
@@ -42,6 +43,7 @@ object TtsErrorCode {
             ERROR_API_RATE_LIMITED -> "请求过于频繁，请稍后重试"
             ERROR_API_SERVER_ERROR -> "服务暂时不可用，请稍后重试"
             ERROR_API_AUTH_FAILED -> "认证失败，请检查 API Key 配置"
+            ERROR_NOT_IMPLEMENTED -> "该引擎功能尚未实现"
             else -> "发生错误（错误码：$errorCode）"
         }
     }
@@ -64,6 +66,7 @@ object TtsErrorCode {
             ERROR_API_RATE_LIMITED -> "请等待片刻后重试"
             ERROR_API_SERVER_ERROR -> "请稍后重试，或联系服务提供商"
             ERROR_ENGINE_NOT_FOUND, ERROR_CONFIG_NOT_FOUND -> "请重启应用或重新选择引擎"
+            ERROR_NOT_IMPLEMENTED -> "该引擎正在开发中，请稍后再试"
             else -> "请稍后重试"
         }
     }

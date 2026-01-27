@@ -3,6 +3,7 @@ package com.github.lonepheasantwarrior.talkify.service.engine
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import com.github.lonepheasantwarrior.talkify.service.engine.impl.Qwen3TtsEngine
+import com.github.lonepheasantwarrior.talkify.service.engine.impl.SeedTts2Engine
 
 /**
  * TTS 引擎工厂
@@ -143,7 +144,8 @@ object TtsEngineFactory {
     private fun initializeEngines(): Map<String, () -> TtsEngineApi> {
         TtsLogger.d("TtsEngineFactory: initializing engines")
         return mapOf(
-            Qwen3TtsEngine.ENGINE_ID to { Qwen3TtsEngine() }
+            Qwen3TtsEngine.ENGINE_ID to { Qwen3TtsEngine() },
+            SeedTts2Engine.ENGINE_ID to { SeedTts2Engine() }
         ).also {
             TtsLogger.i("TtsEngineFactory: ${it.size} engines registered")
         }

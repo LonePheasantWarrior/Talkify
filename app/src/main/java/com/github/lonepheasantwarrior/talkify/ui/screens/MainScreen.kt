@@ -37,7 +37,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.github.lonepheasantwarrior.talkify.R
+import com.github.lonepheasantwarrior.talkify.domain.model.EngineIds
 import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.SeedTts2Config
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
@@ -46,6 +48,8 @@ import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsVoiceRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2ConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2VoiceRepository
 import com.github.lonepheasantwarrior.talkify.service.TalkifyTtsDemoService
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.ui.components.ConfigBottomSheet
@@ -64,12 +68,20 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val voiceRepository: VoiceRepository = remember {
-        Qwen3TtsVoiceRepository(context)
+    // 根据当前引擎获取对应的声音仓储
+    fun getVoiceRepository(engineId: String): VoiceRepository {
+        return when (engineId) {
+            EngineIds.SeedTts2.value -> SeedTts2VoiceRepository(context)
+            else -> Qwen3TtsVoiceRepository(context)
+        }
     }
 
-    val configRepository: EngineConfigRepository = remember {
-        Qwen3TtsConfigRepository(context)
+    // 根据当前引擎获取对应的配置仓储
+    fun getConfigRepository(engineId: String): EngineConfigRepository {
+        return when (engineId) {
+            EngineIds.SeedTts2.value -> SeedTts2ConfigRepository(context)
+            else -> Qwen3TtsConfigRepository(context)
+        }
     }
 
     val appConfigRepository: AppConfigRepository = remember {
@@ -133,11 +145,13 @@ fun MainScreen(
     var inputText by remember { mutableStateOf(defaultInputText) }
     var isConfigSheetOpen by remember { mutableStateOf(false) }
 
-    var savedConfig by remember { mutableStateOf(configRepository.getConfig(currentEngine.id)) }
+    var savedConfig by remember(currentEngine.id) { 
+        mutableStateOf(getConfigRepository(currentEngine.id).getConfig(currentEngine.id)) 
+    }
 
     LaunchedEffect(currentEngine) {
-        savedConfig = configRepository.getConfig(currentEngine.id)
-        val voices = voiceRepository.getVoicesForEngine(currentEngine)
+        savedConfig = getConfigRepository(currentEngine.id).getConfig(currentEngine.id)
+        val voices = getVoiceRepository(currentEngine.id).getVoicesForEngine(currentEngine)
         availableVoices = voices
         selectedVoice = availableVoices.find { it.voiceId == savedConfig.voiceId } ?: voices.firstOrNull()
     }
@@ -246,14 +260,29 @@ fun MainScreen(
                                 return@VoicePreview
                             }
 
-                            val qwenConfig = savedConfig as? Qwen3TtsConfig ?: Qwen3TtsConfig()
-                            val config = qwenConfig.copy(
-                                voiceId = selectedVoice?.voiceId ?: qwenConfig.voiceId
-                            )
+                            // 根据当前引擎类型处理配置
+                            val config = when (savedConfig) {
+                                is Qwen3TtsConfig -> {
+                                    val qwenConfig = savedConfig as? Qwen3TtsConfig ?: Qwen3TtsConfig()
+                                    qwenConfig.copy(voiceId = selectedVoice?.voiceId ?: qwenConfig.voiceId)
+                                }
+                                is SeedTts2Config -> {
+                                    val seedConfig = savedConfig as? SeedTts2Config ?: SeedTts2Config()
+                                    seedConfig.copy(voiceId = selectedVoice?.voiceId ?: seedConfig.voiceId)
+                                }
+                                else -> savedConfig
+                            }
 
-                            if (config.apiKey.isBlank()) {
+                            // 检查配置是否有效
+                            val isConfigured = when (config) {
+                                is Qwen3TtsConfig -> config.apiKey.isNotBlank()
+                                is SeedTts2Config -> config.appId.isNotBlank() && config.accessKey.isNotBlank()
+                                else -> false
+                            }
+
+                            if (!isConfigured) {
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("请先配置 API Key")
+                                    snackbarHostState.showSnackbar("请先完成引擎配置")
                                 }
                                 isConfigSheetOpen = true
                                 return@VoicePreview
@@ -285,10 +314,10 @@ fun MainScreen(
         isOpen = isConfigSheetOpen,
         onDismiss = { isConfigSheetOpen = false },
         currentEngine = currentEngine,
-        configRepository = configRepository,
-        voiceRepository = voiceRepository,
+        configRepository = getConfigRepository(currentEngine.id),
+        voiceRepository = getVoiceRepository(currentEngine.id),
         onConfigSaved = {
-            savedConfig = configRepository.getConfig(currentEngine.id)
+            savedConfig = getConfigRepository(currentEngine.id).getConfig(currentEngine.id)
         }
     )
 }

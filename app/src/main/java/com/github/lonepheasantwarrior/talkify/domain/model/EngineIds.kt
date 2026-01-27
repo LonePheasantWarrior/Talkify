@@ -59,7 +59,7 @@ sealed class EngineIds {
          * 获取所有定义的引擎 ID 列表
          */
         val entries: List<EngineIds> by lazy {
-            listOf(Qwen3Tts)
+            listOf(Qwen3Tts, SeedTts2)
         }
     }
 }

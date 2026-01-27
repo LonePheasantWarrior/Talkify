@@ -33,6 +33,16 @@ data class AudioConfig(
         )
 
         /**
+         * 豆包语音合成 2.0 默认配置
+         * 参考火山引擎文档，音频采样率为 24000Hz
+         */
+        val SEED_TTS2 = AudioConfig(
+            sampleRate = 24000,
+            audioFormat = AudioFormat.ENCODING_PCM_16BIT,
+            channelCount = 1
+        )
+
+        /**
          * 创建标准配置
          *
          * @param sampleRate 采样率
