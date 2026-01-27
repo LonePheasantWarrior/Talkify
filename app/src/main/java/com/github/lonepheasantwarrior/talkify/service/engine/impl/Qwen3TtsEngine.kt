@@ -10,6 +10,7 @@ import com.alibaba.dashscope.exception.ApiException
 import com.alibaba.dashscope.exception.NoApiKeyException
 import com.alibaba.dashscope.exception.UploadFileException
 import com.alibaba.dashscope.utils.Constants
+import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.service.TtsErrorCode
@@ -482,5 +483,17 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         }
         TtsLogger.d("$tag: isConfigured = $result")
         return result
+    }
+
+    override fun createDefaultConfig(): BaseEngineConfig {
+        return Qwen3TtsConfig()
+    }
+
+    override fun getConfigLabel(configKey: String, context: android.content.Context): String? {
+        return when (configKey) {
+            "api_key" -> context.getString(R.string.api_key_label)
+            "voice_id" -> context.getString(R.string.voice_select_label)
+            else -> null
+        }
     }
 }

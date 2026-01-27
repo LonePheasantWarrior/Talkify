@@ -112,6 +112,28 @@ interface TtsEngineApi {
      * 检查引擎是否支持目标声音ID（声音 ID 是否合法）
      */
     fun isVoiceIdCorrect(voiceId: String?): Boolean
+
+    /**
+     * 创建引擎的默认配置实例
+     *
+     * 用于创建该引擎类型的空配置对象
+     * 供配置编辑界面动态创建正确的配置类型
+     *
+     * @return 引擎默认配置实例
+     */
+    fun createDefaultConfig(): BaseEngineConfig
+
+    /**
+     * 获取配置项标签
+     *
+     * 用于 UI 层显示配置项的本地化标签
+     * 每个引擎可以定义自己的配置项标签
+     *
+     * @param configKey 配置项键名
+     * @param context Android Context 用于获取字符串资源
+     * @return 配置项的本地化标签，若引擎不支持该配置项则返回 null
+     */
+    fun getConfigLabel(configKey: String, context: android.content.Context): String?
 }
 
 /**
