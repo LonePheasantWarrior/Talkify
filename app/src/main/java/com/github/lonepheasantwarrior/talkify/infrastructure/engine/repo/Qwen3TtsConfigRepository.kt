@@ -2,7 +2,8 @@ package com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 
@@ -21,19 +22,20 @@ class Qwen3TtsConfigRepository(
     private val sharedPreferences: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    override fun getConfig(engineId: String): EngineConfig {
+    override fun getConfig(engineId: String): BaseEngineConfig {
         val prefsKey = getPrefsKey(engineId)
-        return EngineConfig(
+        return Qwen3TtsConfig(
             apiKey = sharedPreferences.getString("${prefsKey}_$KEY_API_KEY", "") ?: "",
             voiceId = sharedPreferences.getString("${prefsKey}_$KEY_VOICE_ID", "") ?: ""
         )
     }
 
-    override fun saveConfig(engineId: String, config: EngineConfig) {
+    override fun saveConfig(engineId: String, config: BaseEngineConfig) {
         val prefsKey = getPrefsKey(engineId)
+        val qwenConfig = config as? Qwen3TtsConfig ?: return
         sharedPreferences.edit()
-            .putString("${prefsKey}_$KEY_API_KEY", config.apiKey)
-            .putString("${prefsKey}_$KEY_VOICE_ID", config.voiceId)
+            .putString("${prefsKey}_$KEY_API_KEY", qwenConfig.apiKey)
+            .putString("${prefsKey}_$KEY_VOICE_ID", qwenConfig.voiceId)
             .apply()
     }
 

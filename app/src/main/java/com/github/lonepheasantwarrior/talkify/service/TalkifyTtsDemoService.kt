@@ -1,6 +1,6 @@
 package com.github.lonepheasantwarrior.talkify.service
 
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
@@ -17,8 +17,6 @@ class TalkifyTtsDemoService(
     private val engineId: String
 ) {
     companion object {
-        private const val TAG = "TalkifyTtsDemoService"
-
         const val STATE_IDLE = 0
         const val STATE_PLAYING = 1
         const val STATE_STOPPED = 2
@@ -50,7 +48,7 @@ class TalkifyTtsDemoService(
 
     fun speak(
         text: String,
-        config: EngineConfig,
+        config: BaseEngineConfig,
         params: SynthesisParams = SynthesisParams(language = "Auto")
     ) {
         if (currentState == STATE_PLAYING) {

@@ -8,7 +8,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import com.github.lonepheasantwarrior.talkify.R
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
@@ -79,7 +79,7 @@ class TalkifyTtsService : TextToSpeechService() {
 
     private var currentEngineId: String? = null
 
-    private var currentConfig: EngineConfig? = null
+    private var currentConfig: BaseEngineConfig? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -497,8 +497,9 @@ class TalkifyTtsService : TextToSpeechService() {
     ): String? {
         TtsLogger.d("onGetDefaultVoiceNameFor: lang: $lang, country: $country, variant: $variant")
         var currentVoiceId: String? = null
-        if (currentConfig != null && currentConfig!!.voiceId.isNotBlank()) {
-            currentVoiceId = currentConfig!!.voiceId
+        val config = currentConfig
+        if (config != null && config.voiceId.isNotBlank()) {
+            currentVoiceId = config.voiceId
         }
         val defaultVoiceName = currentEngine?.getDefaultVoiceId(lang, country, variant, currentVoiceId)
         TtsLogger.d("onGetDefaultVoiceNameFor: defaultVoiceName: $defaultVoiceName")

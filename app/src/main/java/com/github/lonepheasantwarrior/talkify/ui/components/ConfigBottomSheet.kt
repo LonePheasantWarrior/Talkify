@@ -26,7 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.ConfigItem
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngine
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceInfo
@@ -73,13 +73,15 @@ fun ConfigBottomSheet(
     val apiKeyLabel = stringResource(R.string.api_key_label)
     val voiceLabel = stringResource(R.string.voice_select_label)
 
+    val qwenConfig = savedConfig as? Qwen3TtsConfig ?: Qwen3TtsConfig()
+
     var configItems by remember(currentEngine, savedConfig, isOpen, apiKeyLabel, voiceLabel) {
         mutableStateOf(
             listOf(
                 ConfigItem(
                     key = "api_key",
                     label = apiKeyLabel,
-                    value = savedConfig.apiKey,
+                    value = qwenConfig.apiKey,
                     isPassword = true
                 ),
                 ConfigItem(
@@ -163,9 +165,10 @@ fun ConfigBottomSheet(
                         isConfigModified = true
                     },
                     onSaveClick = {
-                        val newConfig = EngineConfig(
-                            apiKey = configItems.find { it.key == "api_key" }?.value ?: "",
-                            voiceId = configItems.find { it.key == "voice_id" }?.value ?: ""
+                        val qwenConfig = savedConfig as? Qwen3TtsConfig ?: Qwen3TtsConfig()
+                        val newConfig = Qwen3TtsConfig(
+                            apiKey = configItems.find { it.key == "api_key" }?.value ?: qwenConfig.apiKey,
+                            voiceId = configItems.find { it.key == "voice_id" }?.value ?: qwenConfig.voiceId
                         )
                         configRepository.saveConfig(currentEngine.id, newConfig)
                         isConfigModified = false

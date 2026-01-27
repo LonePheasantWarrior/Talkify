@@ -1,7 +1,7 @@
 package com.github.lonepheasantwarrior.talkify.service.engine
 
 import android.speech.tts.Voice
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 
 /**
  * TTS 合成参数
@@ -52,7 +52,7 @@ interface TtsEngineApi {
      * @param config 引擎配置
      * @return 是否已配置
      */
-    fun isConfigured(config: EngineConfig?): Boolean
+    fun isConfigured(config: BaseEngineConfig?): Boolean
 
     /**
      * 合成语音
@@ -65,7 +65,7 @@ interface TtsEngineApi {
     fun synthesize(
         text: String,
         params: SynthesisParams,
-        config: EngineConfig,
+        config: BaseEngineConfig,
         listener: TtsSynthesisListener
     )
 

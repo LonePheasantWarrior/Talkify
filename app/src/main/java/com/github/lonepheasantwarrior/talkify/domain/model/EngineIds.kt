@@ -31,6 +31,15 @@ sealed class EngineIds {
     }
 
     /**
+     * 火山引擎 - 豆包语音合成 2.0
+     */
+    data object SeedTts2 : EngineIds() {
+        override val value: String = "seed-tts-2.0"
+        override val displayName: String = "豆包语音合成2.0"
+        override val provider: String = "火山引擎"
+    }
+
+    /**
      * 引擎唯一标识符
      */
     abstract val value: String

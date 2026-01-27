@@ -1,15 +1,7 @@
 package com.github.lonepheasantwarrior.talkify.service.engine
 
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 
-/**
- * TTS 引擎抽象基类
- *
- * 提供引擎共性功能的默认实现
- * 具体引擎只需继承并实现特定逻辑
- * 便于引擎扩展和代码复用
- */
 abstract class AbstractTtsEngine : TtsEngineApi {
 
     protected var isReleased: Boolean = false

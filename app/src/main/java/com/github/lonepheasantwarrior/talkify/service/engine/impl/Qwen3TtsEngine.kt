@@ -10,7 +10,8 @@ import com.alibaba.dashscope.exception.ApiException
 import com.alibaba.dashscope.exception.NoApiKeyException
 import com.alibaba.dashscope.exception.UploadFileException
 import com.alibaba.dashscope.utils.Constants
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.service.TtsErrorCode
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import com.github.lonepheasantwarrior.talkify.service.engine.AbstractTtsEngine
@@ -68,11 +69,18 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     override fun getEngineName(): String = ENGINE_NAME
 
     override fun synthesize(
-        text: String, params: SynthesisParams, config: EngineConfig, listener: TtsSynthesisListener
+        text: String, params: SynthesisParams, config: BaseEngineConfig, listener: TtsSynthesisListener
     ) {
         checkNotReleased()
 
-        if (config.apiKey.isEmpty()) {
+        val qwenConfig = config as? Qwen3TtsConfig
+        if (qwenConfig == null) {
+            logError("Invalid config type, expected Qwen3TtsConfig")
+            listener.onError(TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
+            return
+        }
+
+        if (qwenConfig.apiKey.isEmpty()) {
             logError("API key is not configured")
             listener.onError(TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
             return
@@ -90,14 +98,14 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         isCancelled = false
         hasCompleted = false
 
-        processNextChunk(textChunks, 0, params, config, listener)
+        processNextChunk(textChunks, 0, params, qwenConfig, listener)
     }
 
     private fun processNextChunk(
         chunks: List<String>,
         index: Int,
         params: SynthesisParams,
-        config: EngineConfig,
+        config: Qwen3TtsConfig,
         listener: TtsSynthesisListener
     ) {
         if (isCancelled || hasCompleted) {
@@ -193,7 +201,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         chunks: List<String>,
         index: Int,
         params: SynthesisParams,
-        config: EngineConfig,
+        config: Qwen3TtsConfig,
         listener: TtsSynthesisListener
     ): DisposableSubscriber<MultiModalConversationResult> {
         return object : DisposableSubscriber<MultiModalConversationResult>() {
@@ -332,7 +340,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     }
 
     private fun buildConversationParam(
-        text: String, params: SynthesisParams, config: EngineConfig
+        text: String, params: SynthesisParams, config: Qwen3TtsConfig
     ): MultiModalConversationParam {
         val voice = if (config.voiceId.isNotEmpty()) {
             parseVoice(config.voiceId)
@@ -405,7 +413,6 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     }
 
     override fun getDefaultLanguages(): Array<String> {
-        // 必须按照 [Language, Country, Variant] 的顺序返回
         return arrayOf(Locale.SIMPLIFIED_CHINESE.isO3Language, Locale.SIMPLIFIED_CHINESE.isO3Country, "")
     }
 
@@ -443,12 +450,8 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         return AudioParameters.Voice.entries.any { it.value == extractRealVoiceName(voiceId) }
     }
 
-    /**
-     * 从 Android 复合名中提取真实的云端 VoiceId
-     */
     private fun extractRealVoiceName(androidVoiceName: String?): String? {
         if (androidVoiceName == null) return null
-        // 如果名字包含分隔符，切分取第一部分；如果不包含，直接返回原名（兼容性）
         return if (androidVoiceName.contains(VOICE_NAME_SEPARATOR)) {
             androidVoiceName.substringBefore(VOICE_NAME_SEPARATOR)
         } else {
@@ -471,10 +474,11 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         super.release()
     }
 
-    override fun isConfigured(config: EngineConfig?): Boolean {
+    override fun isConfigured(config: BaseEngineConfig?): Boolean {
+        val qwenConfig = config as? Qwen3TtsConfig
         var result = false
-        if (config != null) {
-            result = config.apiKey.isNotBlank()
+        if (qwenConfig != null) {
+            result = qwenConfig.apiKey.isNotBlank()
         }
         TtsLogger.d("$tag: isConfigured = $result")
         return result

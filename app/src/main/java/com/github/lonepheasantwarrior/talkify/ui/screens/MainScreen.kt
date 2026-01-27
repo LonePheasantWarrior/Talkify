@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.github.lonepheasantwarrior.talkify.R
+import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
@@ -245,8 +246,9 @@ fun MainScreen(
                                 return@VoicePreview
                             }
 
-                            val config = savedConfig.copy(
-                                voiceId = selectedVoice?.voiceId ?: savedConfig.voiceId
+                            val qwenConfig = savedConfig as? Qwen3TtsConfig ?: Qwen3TtsConfig()
+                            val config = qwenConfig.copy(
+                                voiceId = selectedVoice?.voiceId ?: qwenConfig.voiceId
                             )
 
                             if (config.apiKey.isBlank()) {

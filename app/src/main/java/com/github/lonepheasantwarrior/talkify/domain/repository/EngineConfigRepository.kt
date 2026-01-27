@@ -1,6 +1,6 @@
 package com.github.lonepheasantwarrior.talkify.domain.repository
 
-import com.github.lonepheasantwarrior.talkify.domain.model.EngineConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 
 /**
  * 引擎配置仓储接口
@@ -18,7 +18,7 @@ interface EngineConfigRepository {
      * @param engineId 引擎 ID
      * @return 引擎配置
      */
-    fun getConfig(engineId: String): EngineConfig
+    fun getConfig(engineId: String): BaseEngineConfig
 
     /**
      * 保存指定引擎的配置
@@ -26,7 +26,7 @@ interface EngineConfigRepository {
      * @param engineId 引擎 ID
      * @param config 引擎配置
      */
-    fun saveConfig(engineId: String, config: EngineConfig)
+    fun saveConfig(engineId: String, config: BaseEngineConfig)
 
     /**
      * 检查指定引擎是否有已保存的配置
