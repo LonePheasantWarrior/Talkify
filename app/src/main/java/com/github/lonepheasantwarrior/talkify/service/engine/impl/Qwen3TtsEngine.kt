@@ -410,7 +410,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     }
 
     override fun getSupportedLanguages(): Set<String> {
-        return setOf("zho", "zh", "zh-CN", "en", "de", "it", "pt", "es", "ja", "ko", "fr", "ru")
+        return setOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
     }
 
     override fun getDefaultLanguages(): Array<String> {

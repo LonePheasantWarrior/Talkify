@@ -607,7 +607,7 @@ class SeedTts2Engine : AbstractTtsEngine() {
     }
 
     override fun getSupportedLanguages(): Set<String> {
-        return setOf("zh", "zh-CN", "en", "en-US")
+        return setOf("zho", "eng")
     }
 
     override fun getDefaultLanguages(): Array<String> {
