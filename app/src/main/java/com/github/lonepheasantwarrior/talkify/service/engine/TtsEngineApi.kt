@@ -9,15 +9,15 @@ import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
  * 封装来自 Android 系统的合成参数
  * 包括音调、音量、语速等语音属性
  *
- * @param pitch 音调，值域 [0.0, 2.0]，1.0 为默认值
- * @param speechRate 语速，值域 [0.0, 2.0]，1.0 为默认值
- * @param volume 音量，值域 [0.0, 1.0]，1.0 为默认值
+ * @param pitch 音调，范围 [0, 200]，100 为默认值（正常音调）
+ * @param speechRate 语速，范围 [0, 200]，100 为默认值（正常语速），值越大语速越快
+ * @param volume 音量，范围 [0.0, 1.0]，1.0 为默认值（最大音量）
  * @param audioFormat 音频格式（如 AudioFormat.ENCODING_PCM_16BIT）
  * @param language 语言类型（如 "Chinese", "English" 等，null 表示使用引擎默认值）
  */
 data class SynthesisParams(
-    val pitch: Float = 1.0f,
-    val speechRate: Float = 1.0f,
+    val pitch: Float = 100.0f,
+    val speechRate: Float = 100.0f,
     val volume: Float = 1.0f,
     val audioFormat: Int = 2,
     val language: String? = null

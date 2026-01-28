@@ -289,9 +289,9 @@ fun MainScreen(
                             }
 
                             val params = SynthesisParams(
-                                pitch = 1.0f,
-                                speechRate = 1.0f,
-                                volume = 1.0f
+                                pitch = 100.0f,
+                                speechRate = 100.0f,
+                                volume = 100.0f
                             )
 
                             demoService.speak(inputText, config, params)

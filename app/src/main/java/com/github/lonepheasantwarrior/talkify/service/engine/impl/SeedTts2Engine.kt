@@ -392,9 +392,11 @@ class SeedTts2Engine : AbstractTtsEngine() {
 
         // 转换语速：Android [0.0, 2.0] -> 火山 [-50, 100]
         val speechRate = convertSpeechRate(params.speechRate)
+        logDebug("ttsSpeechRate: ${params.speechRate}, seedSpeechRate: $speechRate")
 
         // 转换音量：Android [0.0, 1.0] -> 火山 [-50, 100]
         val loudnessRate = convertLoudnessRate(params.volume)
+        logDebug("ttsLoudnessRate: ${params.volume}, seedLoudnessRate: $loudnessRate")
 
         // 构建 additions 参数
         val additions = JSONObject().apply {
@@ -499,27 +501,35 @@ class SeedTts2Engine : AbstractTtsEngine() {
 
     /**
      * 转换语速参数
-     * Android: [0.0, 2.0]，1.0 为默认值
+     * Android: [0, 200]，100 为默认值（表示 1.0x 倍速）
      * 火山: [-50, 100]，0 为默认值
+     *
+     * 转换规则：
+     * - Android 50 (0.5x) -> 火山 -50
+     * - Android 100 (1.0x) -> 火山 0
+     * - Android 200 (2.0x) -> 火山 100
      */
     private fun convertSpeechRate(androidRate: Float): Int {
         return when {
-            androidRate <= 0.5f -> -50
-            androidRate >= 2.0f -> 100
-            else -> ((androidRate - 1.0f) * 100).roundToInt()
+            androidRate <= 50f -> -50
+            androidRate >= 200f -> 100
+            else -> ((androidRate - 100f) / 100f * 100f).roundToInt()
         }
     }
 
     /**
      * 转换音量参数
-     * Android: [0.0, 1.0]，1.0 为默认值
+     * Android: [0.0, 1.0]，1.0 为默认值（与 speechRate/pitch 不同！）
      * 火山: [-50, 100]，0 为默认值
+     *
+     * 注意：SynthesisRequest.getVolume() 返回的是 [0.0, 1.0] 的浮点数
+     * 而 getSpeechRate() 和 getPitch() 返回的是 [0, 200] 的整数
      */
     private fun convertLoudnessRate(androidVolume: Float): Int {
         return when {
-            androidVolume <= 0.5f -> -50
-            androidVolume >= 2.0f -> 100
-            else -> ((androidVolume - 1.0f) * 100).roundToInt()
+            androidVolume <= 0.25f -> -50
+            androidVolume >= 1.0f -> 100
+            else -> ((androidVolume - 0.5f) / 0.5f * 100f).roundToInt()
         }
     }
 

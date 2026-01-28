@@ -15,6 +15,7 @@ import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepo
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.notification.TalkifyNotificationHelper
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2ConfigRepository
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
@@ -141,20 +142,37 @@ class TalkifyTtsService : TextToSpeechService() {
      *
      * 如果服务尚未运行，则启动为前台服务并显示通知
      * 使用 [TalkifyNotificationHelper.buildForegroundWithNotification] 构建通知
+     * 
+     * 注意：Android 12+ 限制了后台启动前台服务，当第三方应用在后台调用 TTS 时
+     * 可能抛出 ForegroundServiceStartNotAllowedException，此时我们会静默降级为非前台服务
      */
     private fun startForegroundService() {
         if (!isForegroundServiceRunning) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    FOREGROUND_SERVICE_N_ID,
-                    TalkifyNotificationHelper.buildForegroundWithNotification(this),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(FOREGROUND_SERVICE_N_ID, TalkifyNotificationHelper.buildForegroundWithNotification(this))
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(
+                        FOREGROUND_SERVICE_N_ID,
+                        TalkifyNotificationHelper.buildForegroundWithNotification(this),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    )
+                } else {
+                    startForeground(FOREGROUND_SERVICE_N_ID, TalkifyNotificationHelper.buildForegroundWithNotification(this))
+                }
+                isForegroundServiceRunning = true
+                TtsLogger.d("Foreground service started")
+            } catch (e: Exception) {
+                // Android 12+ 可能抛出 ForegroundServiceStartNotAllowedException
+                // 当第三方应用在后台调用 TTS 服务时，系统禁止启动前台服务
+                // 此时我们静默处理，继续以非前台服务模式运行
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && 
+                    e is android.app.ForegroundServiceStartNotAllowedException) {
+                    TtsLogger.w("Cannot start foreground service from background, continuing without foreground status")
+                } else {
+                    TtsLogger.w("Failed to start foreground service: ${e.message}")
+                }
+                // 标记为未运行前台服务，但允许继续执行 TTS 合成
+                isForegroundServiceRunning = false
             }
-            isForegroundServiceRunning = true
-            TtsLogger.d("Foreground service started")
         }
     }
 
@@ -215,16 +233,45 @@ class TalkifyTtsService : TextToSpeechService() {
     }
 
     /**
+     * 引擎配置仓储映射表
+     * 根据引擎 ID 获取对应的配置仓储
+     */
+    private val engineConfigRepositoryMap: MutableMap<String, EngineConfigRepository> = mutableMapOf()
+
+    /**
+     * 获取指定引擎的配置仓储
+     *
+     * 根据引擎 ID 动态创建或获取对应的配置仓储实例
+     * 支持多引擎配置隔离存储
+     *
+     * @param engineId 引擎唯一标识符
+     * @return 对应引擎的配置仓储实例
+     */
+    private fun getEngineConfigRepository(engineId: String): EngineConfigRepository {
+        return engineConfigRepositoryMap.getOrPut(engineId) {
+            when (engineId) {
+                "qwen3-tts" -> Qwen3TtsConfigRepository(applicationContext)
+                "seed-tts-2.0" -> SeedTts2ConfigRepository(applicationContext)
+                else -> {
+                    TtsLogger.w("Unknown engine ID: $engineId, using default Qwen3TtsConfigRepository")
+                    Qwen3TtsConfigRepository(applicationContext)
+                }
+            }
+        }
+    }
+
+    /**
      * 初始化仓储
      *
-     * 创建应用配置仓储和引擎配置仓储的实例
-     * 用于后续获取用户配置和引擎设置
+     * 创建应用配置仓储的实例
+     * 引擎配置仓储采用延迟初始化策略，根据实际使用的引擎动态创建
      */
     private fun initializeRepositories() {
         TtsLogger.d("Initializing repositories")
         try {
             appConfigRepository = SharedPreferencesAppConfigRepository(applicationContext)
-            engineConfigRepository = Qwen3TtsConfigRepository(applicationContext)
+            // 引擎配置仓储不再在这里统一初始化
+            // 而是在 getEngineConfigRepository() 中根据引擎 ID 动态创建
             TtsLogger.i("Repositories initialized successfully")
         } catch (e: Exception) {
             TtsLogger.e("Failed to initialize repositories", e)
@@ -541,7 +588,6 @@ class TalkifyTtsService : TextToSpeechService() {
             callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
             return
         }
-
         val text = request.charSequenceText?.toString()
         if (text.isNullOrBlank()) {
             callback.done()
@@ -567,8 +613,8 @@ class TalkifyTtsService : TextToSpeechService() {
                 return
             }
 
-            val config = engineConfigRepository?.getConfig(engineId)
-            if (config == null || !engine.isConfigured(config)) {
+            val config = getEngineConfigRepository(engineId).getConfig(engineId)
+            if (!engine.isConfigured(config)) {
                 TtsLogger.e("processRequestSynchronously: config not ready")
                 callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
                 TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_config_not_ready))
@@ -583,8 +629,8 @@ class TalkifyTtsService : TextToSpeechService() {
             val params = SynthesisParams(
                 pitch = request.pitch.toFloat(),
                 speechRate = request.speechRate.toFloat(),
-                volume = 1.0f,
                 language = request.language
+                // volume 使用默认值 1.0f（SynthesisRequest 不直接提供 volume 参数）
             )
 
             // 4. 初始化音频参数并通知系统开始
