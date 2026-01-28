@@ -53,7 +53,7 @@ class SeedTts2Engine : AbstractTtsEngine() {
         private const val RESOURCE_ID = "seed-tts-2.0"
 
         // 文本分块配置
-        private const val MAX_TEXT_LENGTH = 500
+        private const val MAX_TEXT_LENGTH = 300
 
         // OkHttp 连接池配置（复用连接，keep-alive 1分钟）
         private val connectionPool = ConnectionPool(5, 1, TimeUnit.MINUTES)
