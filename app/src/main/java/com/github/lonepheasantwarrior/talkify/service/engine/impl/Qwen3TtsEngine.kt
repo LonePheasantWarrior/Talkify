@@ -48,6 +48,11 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         private const val MAX_TEXT_LENGTH = 500
 
         private const val VOICE_NAME_SEPARATOR = "::"
+
+        /**
+         * 支持的语言列表（ISO 639-2 三字母代码）
+         */
+        val SUPPORTED_LANGUAGES = arrayOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
     }
 
     @Volatile
@@ -410,7 +415,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
     }
 
     override fun getSupportedLanguages(): Set<String> {
-        return setOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
+        return SUPPORTED_LANGUAGES.toSet()
     }
 
     override fun getDefaultLanguages(): Array<String> {

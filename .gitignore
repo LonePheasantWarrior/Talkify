@@ -17,3 +17,6 @@ local.properties
 /app/build/
 /app/debug/
 /app/release/
+/logs/
+/.idea/
+/.vscode/

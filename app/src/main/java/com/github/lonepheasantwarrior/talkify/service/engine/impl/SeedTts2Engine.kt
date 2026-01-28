@@ -67,6 +67,11 @@ class SeedTts2Engine : AbstractTtsEngine() {
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .build()
         }
+
+        /**
+         * 支持的语言列表（ISO 639-2 三字母代码）
+         */
+        val SUPPORTED_LANGUAGES = arrayOf("zho", "eng")
     }
 
     // 协程作用域用于异步处理
@@ -607,7 +612,7 @@ class SeedTts2Engine : AbstractTtsEngine() {
     }
 
     override fun getSupportedLanguages(): Set<String> {
-        return setOf("zho", "eng")
+        return SUPPORTED_LANGUAGES.toSet()
     }
 
     override fun getDefaultLanguages(): Array<String> {
