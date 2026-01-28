@@ -4,6 +4,8 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -11,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -81,9 +84,13 @@ class MainActivity : ComponentActivity() {
         checkNetworkStatus()
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TtsLogger.i(TAG) { "MainActivity.onCreate: 应用启动" }
+
+        // 设置音量键控制媒体音量，确保语音预览时音量键可以调节播放音量
+        setVolumeControlStream(AudioManager.STREAM_MUSIC)
 
         enableEdgeToEdge()
         setContent {
@@ -209,6 +216,7 @@ class MainActivity : ComponentActivity() {
         showNotificationPermissionDialog = true
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun requestNotificationPermission() {
         TtsLogger.d(TAG) { "requestNotificationPermission: 请求通知权限" }
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)

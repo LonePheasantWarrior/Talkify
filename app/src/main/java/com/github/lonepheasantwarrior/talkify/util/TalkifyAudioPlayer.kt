@@ -51,13 +51,11 @@ class TalkifyAudioPlayer(
 
     fun configureAudioAttributes(
         usage: Int = AudioAttributes.USAGE_MEDIA,
-        contentType: Int = AudioAttributes.CONTENT_TYPE_SPEECH,
-        flags: Int = AudioAttributes.FLAG_AUDIBILITY_ENFORCED
+        contentType: Int = AudioAttributes.CONTENT_TYPE_SPEECH
     ): AudioAttributes {
         return AudioAttributes.Builder()
             .setUsage(usage)
             .setContentType(contentType)
-            .setFlags(flags)
             .build()
     }
 
