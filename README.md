@@ -1,8 +1,7 @@
 <div style="overflow: hidden;">
-  <img src="doc/images/Screenshot_talkify.webp" align="right" width="25%" alt="Talkify Screenshot" style="margin-left: 20px; border-radius: 8px;" />
-
-  <h1 style="margin-top: 0;">Talkify</h1>
-  <h3>🤖 云端大模型驱动的 Android TTS 引擎</h3>
+  <img src="doc/images/Screenshot_talkify.webp" width="25%" alt="Talkify Screenshot" style="float: right; margin-left: 20px; border-radius: 8px;" />
+  
+  <h1 style="margin-top: 0;">Talkify</h1>  <h3>🤖 云端大模型驱动的 Android TTS 引擎</h3>
 
   <p>
     Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音，而是作为桥梁，将云端顶尖大模型（通义千问、豆包）的高质量拟人语音合成能力，通过 Android 标准 Text-to-Speech 接口赋予您的系统和阅读软件。
@@ -81,11 +80,11 @@ Talkify 作为一个 TTS 引擎，最佳的使用场景是搭配优秀的电子�
 
 <table>
   <tr>
-    <td align="center">
+    <td style="text-align: center;">
       <img src="doc/images/alipay_1769136488503.webp" width="200" alt="支付宝"/>
       <br>支付宝
     </td>
-    <td align="center">
+    <td style="text-align: center;">
       <img src="doc/images/wechat_1769136466823.webp" width="200" alt="微信"/>
       <br>微信
     </td>
