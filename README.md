@@ -1,22 +1,21 @@
-<div style="overflow: hidden;">
-  <img src="doc/images/Screenshot_talkify.webp" width="25%" alt="Talkify Screenshot" style="float: right; margin-left: 20px; border-radius: 8px;" />
-  
-  <h1 style="margin-top: 0;">Talkify</h1>  <h3>🤖 云端大模型驱动的 Android TTS 引擎</h3>
+<img src="doc/images/Screenshot_talkify.webp" align="right" width="25%" alt="Talkify Screenshot" style="margin-left: 20px; margin-bottom: 20px; border-radius: 8px;" />
 
-  <p>
-    Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音，而是作为桥梁，将云端顶尖大模型（通义千问、豆包）的高质量拟人语音合成能力，通过 Android 标准 Text-to-Speech 接口赋予您的系统和阅读软件。
-  </p>
+# Talkify
 
-  <p>
-    <img src="https://img.shields.io/badge/Language-Kotlin-7f52ff?style=flat-square&logo=kotlin" alt="Kotlin"/>
-    <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=flat-square&logo=jetpackcompose" alt="Compose"/>
-    <img src="https://img.shields.io/badge/Material-Design%203-6200EE?style=flat-square&logo=materialdesign" alt="Material 3"/>
-    <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android" alt="Android"/>
-  </p>
+### 🤖 云端大模型驱动的 Android TTS 引擎
 
-  <p>让您的电子书朗读不再机械冰冷，而是充满情感与温度。</p>
-</div>
-<br/>
+Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音，而是作为桥梁，将云端顶尖大模型（通义千问、豆包）的高质量拟人语音合成能力，通过 Android 标准 Text-to-Speech 接口赋予您的系统和阅读软件。
+
+<p>
+  <img src="https://img.shields.io/badge/Language-Kotlin-7f52ff?style=flat-square&logo=kotlin" alt="Kotlin"/>
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?style=flat-square&logo=jetpackcompose" alt="Compose"/>
+  <img src="https://img.shields.io/badge/Material-Design%203-6200EE?style=flat-square&logo=materialdesign" alt="Material 3"/>
+  <img src="https://img.shields.io/badge/Platform-Android-3DDC84?style=flat-square&logo=android" alt="Android"/>
+</p>
+
+让您的电子书朗读不再机械冰冷，而是充满情感与温度。
+
+<br clear="both"/>
 
 ## ✨ 核心特性
 
