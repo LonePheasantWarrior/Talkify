@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
@@ -33,6 +35,7 @@ fun UpdateDialog(
 ) {
     val context = LocalContext.current
     val hasReleaseNotes = updateInfo.releaseNotes.length > 0
+    val scrollState = rememberScrollState()
 
     AlertDialog(
         onDismissRequest = onRemindLater,
@@ -53,31 +56,34 @@ fun UpdateDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
             ) {
                 Text(
                     text = stringResource(R.string.update_version_format, updateInfo.versionName),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    textAlign = TextAlign.Start
                 )
 
                 if (hasReleaseNotes) {
                     Text(
                         text = stringResource(R.string.update_whats_new),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Start
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
+                    // 移除固定高度限制，改用滚动容器自适应
                     MarkdownText(
                         content = updateInfo.releaseNotes,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp)
+                        modifier = Modifier.fillMaxWidth()
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))

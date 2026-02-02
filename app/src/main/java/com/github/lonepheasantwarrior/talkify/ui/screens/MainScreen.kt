@@ -3,9 +3,11 @@ package com.github.lonepheasantwarrior.talkify.ui.screens
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,7 +74,9 @@ import com.github.lonepheasantwarrior.talkify.ui.components.VoicePreview
 import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupState
 import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupViewModel
 import kotlinx.coroutines.launch
+import androidx.compose.ui.res.stringArrayResource
 
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -91,12 +95,12 @@ fun MainScreen(
     // 权限请求 Launcher
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        viewModel.onNotificationPermissionResult(isGranted)
+    ) { _ ->
+        viewModel.onNotificationPermissionResult()
     }
 
     // 设置页跳转 Launcher (网络设置)
-    val networkSettingsLauncher = rememberLauncherForActivityResult(
+    rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
         viewModel.onNetworkRetry()
@@ -174,9 +178,11 @@ fun MainScreen(
 
     var availableVoices by remember { mutableStateOf<List<VoiceInfo>>(emptyList()) }
     var selectedVoice by remember { mutableStateOf<VoiceInfo?>(null) }
-    val defaultInputText = remember {
-        val texts = context.resources.getStringArray(R.array.texts)
-        texts.random()
+
+    // 修正方案：
+    val sampleTexts = stringArrayResource(R.array.texts)
+    val defaultInputText = remember(sampleTexts) {
+        sampleTexts.random()
     }
     var inputText by remember { mutableStateOf(defaultInputText) }
     var isConfigSheetOpen by remember { mutableStateOf(false) }
@@ -370,7 +376,7 @@ fun MainScreen(
 
     ConfigBottomSheet(
         isOpen = isConfigSheetOpen,
-        onDismiss = { isConfigSheetOpen = false },
+        onDismiss = { },
         currentEngine = currentEngine,
         configRepository = getConfigRepository(currentEngine.id),
         voiceRepository = getVoiceRepository(currentEngine.id),
@@ -385,7 +391,26 @@ fun MainScreen(
         StartupState.RequestingNotification -> {
             NotificationPermissionDialog(
                 onConfirm = {
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    val permission = Manifest.permission.POST_NOTIFICATIONS
+                    if (activity != null) {
+                        val shouldShowRationale = activity.shouldShowRequestPermissionRationale(permission)
+                        val hasRequestedBefore = viewModel.hasRequestedNotificationPermission()
+
+                        if (!shouldShowRationale && hasRequestedBefore) {
+                            // 情况：系统不再弹窗（永久拒绝或厂商限制） -> 跳转设置页
+                            viewModel.openNotificationSettings()
+                            // 跳转后视为本次处理结束，进入下一步（或者用户回来后下次启动再检查）
+                            // 这里我们选择让用户去设置，然后继续流程
+                            viewModel.onNotificationPermissionResult()
+                        } else {
+                            // 情况：首次请求或需要显示原理 -> 请求权限
+                            viewModel.markNotificationPermissionRequested()
+                            notificationPermissionLauncher.launch(permission)
+                        }
+                    } else {
+                        // Fallback
+                        notificationPermissionLauncher.launch(permission)
+                    }
                 },
                 onDismiss = {
                     viewModel.onSkipNotificationPermission()
@@ -403,7 +428,7 @@ fun MainScreen(
                         try {
                             val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                             context.startActivity(intent)
-                        } catch (e2: Exception) {
+                        } catch (_: Exception) {
                             scope.launch {
                                 snackbarHostState.showSnackbar("无法打开电池优化设置页面，请手动去系统设置中开启")
                             }

@@ -33,8 +33,19 @@ class SharedPreferencesAppConfigRepository(
         return sharedPreferences.contains(KEY_SELECTED_ENGINE)
     }
 
+    override fun hasRequestedNotificationPermission(): Boolean {
+        return sharedPreferences.getBoolean(KEY_HAS_REQUESTED_NOTIFICATION, false)
+    }
+
+    override fun setHasRequestedNotificationPermission(requested: Boolean) {
+        sharedPreferences.edit {
+            putBoolean(KEY_HAS_REQUESTED_NOTIFICATION, requested)
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "talkify_app_config"
         private const val KEY_SELECTED_ENGINE = "selected_engine"
+        private const val KEY_HAS_REQUESTED_NOTIFICATION = "has_requested_notification"
     }
 }

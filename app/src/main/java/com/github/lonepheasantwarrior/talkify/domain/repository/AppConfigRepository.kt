@@ -28,4 +28,14 @@ interface AppConfigRepository {
      * @return 是否已选择过引擎
      */
     fun hasSelectedEngine(): Boolean
+
+    /**
+     * 检查是否已经请求过通知权限
+     */
+    fun hasRequestedNotificationPermission(): Boolean
+
+    /**
+     * 设置是否已经请求过通知权限
+     */
+    fun setHasRequestedNotificationPermission(requested: Boolean)
 }

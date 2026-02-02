@@ -47,7 +47,7 @@ sealed class StartupState {
  */
 class StartupViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val TAG = "StartupViewModel"
+    private val logTag = "StartupViewModel"
     private val context = application
 
     private val appConfigRepository: AppConfigRepository by lazy {
@@ -76,11 +76,11 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     // --- 步骤 1: 网络检查 ---
     private suspend fun checkNetworkStep() {
         _uiState.value = StartupState.CheckingNetwork
-        TtsLogger.d(TAG) { "Step 1: Checking Network..." }
+        TtsLogger.d(logTag) { "Step 1: Checking Network..." }
 
         if (!PermissionChecker.hasInternetPermission(context)) {
             // 理论上 Manifest 声明了就有，除非是特殊系统。这里简单处理为网络阻塞。
-            TtsLogger.w(TAG) { "No internet permission" }
+            TtsLogger.w(logTag) { "No internet permission" }
             _uiState.value = StartupState.NetworkBlocked
             return
         }
@@ -90,10 +90,10 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
         }
 
         if (canAccess) {
-            TtsLogger.i(TAG) { "Network accessible." }
+            TtsLogger.i(logTag) { "Network accessible." }
             checkNotificationStep()
         } else {
-            TtsLogger.w(TAG) { "Network unavailable." }
+            TtsLogger.w(logTag) { "Network unavailable." }
             _uiState.value = StartupState.NetworkBlocked
         }
     }
@@ -101,15 +101,15 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     // --- 步骤 2: 通知权限 ---
     private fun checkNotificationStep() {
         _uiState.value = StartupState.CheckingNotification
-        TtsLogger.d(TAG) { "Step 2: Checking Notification Permission..." }
+        TtsLogger.d(logTag) { "Step 2: Checking Notification Permission..." }
 
         val hasPermission = PermissionChecker.hasNotificationPermission(context)
 
         if (!hasPermission) {
-            TtsLogger.i(TAG) { "Need to request notification permission." }
+            TtsLogger.i(logTag) { "Need to request notification permission." }
             _uiState.value = StartupState.RequestingNotification
         } else {
-            TtsLogger.i(TAG) { "Notification permission check passed (Granted)." }
+            TtsLogger.i(logTag) { "Notification permission check passed (Granted)." }
             checkBatteryStep()
         }
     }
@@ -117,15 +117,15 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     // --- 步骤 3: 电池优化 ---
     private fun checkBatteryStep() {
         _uiState.value = StartupState.CheckingBattery
-        TtsLogger.d(TAG) { "Step 3: Checking Battery Optimization..." }
+        TtsLogger.d(logTag) { "Step 3: Checking Battery Optimization..." }
 
         val isIgnoring = PowerOptimizationHelper.isIgnoringBatteryOptimizations(context)
 
         if (!isIgnoring) {
-            TtsLogger.i(TAG) { "Need to request battery optimization." }
+            TtsLogger.i(logTag) { "Need to request battery optimization." }
             _uiState.value = StartupState.RequestingBatteryOptimization
         } else {
-            TtsLogger.i(TAG) { "Battery optimization check passed." }
+            TtsLogger.i(logTag) { "Battery optimization check passed." }
             checkUpdateStep()
         }
     }
@@ -133,7 +133,7 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     // --- 步骤 4: 检查更新 ---
     private fun checkUpdateStep() {
         _uiState.value = StartupState.CheckingUpdate
-        TtsLogger.d(TAG) { "Step 4: Checking Updates..." }
+        TtsLogger.d(logTag) { "Step 4: Checking Updates..." }
 
         viewModelScope.launch {
             try {
@@ -143,21 +143,21 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 if (result is UpdateCheckResult.UpdateAvailable) {
-                    TtsLogger.i(TAG) { "Update available: ${result.updateInfo.versionName}" }
+                    TtsLogger.i(logTag) { "Update available: ${result.updateInfo.versionName}" }
                     _uiState.value = StartupState.UpdateAvailable(result.updateInfo)
                 } else {
-                    TtsLogger.i(TAG) { "No update available or check failed: $result" }
+                    TtsLogger.i(logTag) { "No update available or check failed: $result" }
                     finishStartup()
                 }
             } catch (e: Exception) {
-                TtsLogger.e("Error checking updates", e, TAG)
+                TtsLogger.e("Error checking updates", e, logTag)
                 finishStartup()
             }
         }
     }
 
     private fun finishStartup() {
-        TtsLogger.i(TAG) { "Startup sequence completed." }
+        TtsLogger.i(logTag) { "Startup sequence completed." }
         _uiState.value = StartupState.Completed
     }
 
@@ -167,7 +167,15 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
         startStartupSequence()
     }
 
-    fun onNotificationPermissionResult(granted: Boolean) {
+    fun hasRequestedNotificationPermission(): Boolean {
+        return appConfigRepository.hasRequestedNotificationPermission()
+    }
+
+    fun markNotificationPermissionRequested() {
+        appConfigRepository.setHasRequestedNotificationPermission(true)
+    }
+
+    fun onNotificationPermissionResult() {
         // 无论授权与否，只要用户做出了选择，就继续下一步
         // 如果拒绝，只要没勾选"不再询问"（系统层面），下次启动还会检查。
         // 如果想实现"拒绝后不再问"，可以在这里记录 skipped。
@@ -201,7 +209,7 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
         return try {
             val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
             packageInfo.versionName ?: "1.0.0"
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             "1.0.0"
         }
     }
@@ -214,7 +222,20 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
             }
             context.startActivity(intent)
         } catch (e: Exception) {
-            TtsLogger.e("Failed to open settings", e, TAG)
+            TtsLogger.e("Failed to open settings", e, logTag)
+        }
+    }
+
+    fun openNotificationSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            // Fallback to generic settings if notification settings fail
+            openSystemSettings()
         }
     }
 }
