@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,7 +75,6 @@ import com.github.lonepheasantwarrior.talkify.ui.components.VoicePreview
 import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupState
 import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupViewModel
 import kotlinx.coroutines.launch
-import androidx.compose.ui.res.stringArrayResource
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)

@@ -1,8 +1,6 @@
 package com.github.lonepheasantwarrior.talkify.ui.components
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,16 +47,14 @@ fun MarkdownText(
         Text(
             text = parsedText,
             modifier = modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .fillMaxWidth(),
             style = style
         )
     } else {
         Text(
             text = content,
             modifier = modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .fillMaxWidth(),
             style = style.copy(color = color)
         )
     }
@@ -144,7 +140,7 @@ private fun processInlineFormatting(
     codeStyle: SpanStyle
 ): androidx.compose.ui.text.AnnotatedString {
     return buildAnnotatedString {
-        var remaining = text
+        val remaining = text
         var index = 0
 
         while (index < remaining.length) {
