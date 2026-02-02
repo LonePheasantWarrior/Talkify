@@ -89,6 +89,12 @@
     <string name="notification_permission_ask_later">以后再说</string>
     <string name="notification_permission_denied">未授予通知权限，部分功能可能受限</string>
 
+    <!-- 电池优化 -->
+    <string name="battery_optimization_title">允许后台运行</string>
+    <string name="battery_optimization_message">Talkify 在后台进行语音合成时，可能会被系统电池优化策略中断网络连接，导致朗读停止。建议您允许 Talkify 忽略电池优化，以获得稳定的后台朗读体验。</string>
+    <string name="battery_optimization_allow">去设置</string>
+    <string name="battery_optimization_skip">以后再说</string>
+
     <!-- 检查更新 -->
     <string name="update_available_title">发现新版本</string>
     <string name="update_version_format">版本：%1$s</string>

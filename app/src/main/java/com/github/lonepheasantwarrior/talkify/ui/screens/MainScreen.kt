@@ -52,10 +52,15 @@ import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2VoiceRepository
 import com.github.lonepheasantwarrior.talkify.service.TalkifyTtsDemoService
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
+import com.github.lonepheasantwarrior.talkify.ui.components.BatteryOptimizationDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.ConfigBottomSheet
 import com.github.lonepheasantwarrior.talkify.ui.components.EngineSelector
 import com.github.lonepheasantwarrior.talkify.ui.components.VoicePreview
+import com.github.lonepheasantwarrior.talkify.infrastructure.app.power.PowerOptimizationHelper
 import kotlinx.coroutines.launch
+import com.github.lonepheasantwarrior.talkify.service.TtsLogger
+import android.provider.Settings
+import android.content.Intent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,6 +105,19 @@ fun MainScreen(
     }
 
     var isPlaying by remember { mutableStateOf(false) }
+    var showBatteryDialog by remember { mutableStateOf(false) }
+
+// ... existing imports ...
+
+    LaunchedEffect(Unit) {
+        val isIgnoring = PowerOptimizationHelper.isIgnoringBatteryOptimizations(context)
+        
+        TtsLogger.i("MainScreen") { "Battery Optimization Check: isIgnoring=$isIgnoring" }
+
+        if (!isIgnoring) {
+            showBatteryDialog = true
+        }
+    }
 
     LaunchedEffect(appConfigRepository) {
         val savedEngineId = appConfigRepository.getSelectedEngineId()
@@ -320,4 +338,31 @@ fun MainScreen(
             savedConfig = getConfigRepository(currentEngine.id).getConfig(currentEngine.id)
         }
     )
+
+    if (showBatteryDialog) {
+        BatteryOptimizationDialog(
+            onConfirm = {
+                showBatteryDialog = false
+                try {
+                    // 尝试直接弹出请求对话框
+                    val intent = PowerOptimizationHelper.createRequestIgnoreBatteryOptimizationsIntent(context)
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    TtsLogger.e("Failed to start direct request intent, falling back to settings list", e, "MainScreen")
+                    try {
+                        // 失败则回退到电池优化设置列表
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        context.startActivity(intent)
+                    } catch (e2: Exception) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar("无法打开电池优化设置页面，请手动去系统设置中开启")
+                        }
+                    }
+                }
+            },
+            onDismiss = {
+                showBatteryDialog = false
+            }
+        )
+    }
 }
