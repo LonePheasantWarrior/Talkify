@@ -20,9 +20,14 @@ import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 
 /**
  * 前台阅读服务通知 ID
@@ -44,7 +49,6 @@ private const val FOREGROUND_SERVICE_N_ID = 1001
  * @property processingSemaphore 请求处理信号量，限制并发处理数量为 1
  * @property isStopped 服务停止标志，使用 AtomicBoolean 保证线程安全
  * @property isSynthesisInProgress 合成进行中标志，用于状态追踪
- * @property synthesisLatch 合成完成门闩，用于同步等待合成完成
  * @property wakeLock 电源唤醒锁，防止合成过程中设备休眠
  * @property isForegroundServiceRunning 前台服务运行状态
  * @property appConfigRepository 应用配置仓储，管理全局应用设置
@@ -61,7 +65,8 @@ class TalkifyTtsService : TextToSpeechService() {
 
     private var isSynthesisInProgress = AtomicBoolean(false)
 
-    private var synthesisLatch: java.util.concurrent.CountDownLatch? = null
+    @Volatile
+    private var activeContinuation: CancellableContinuation<Int?>? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -534,20 +539,19 @@ class TalkifyTtsService : TextToSpeechService() {
     private fun processRequestSynchronously(
         request: android.speech.tts.SynthesisRequest,
         callback: android.speech.tts.SynthesisCallback
-    ) {
+    ) = runBlocking {
         // 1. 基础校验
         if (isStopped.get()) {
             callback.error(TextToSpeech.ERROR_INVALID_REQUEST)
-            return
+            return@runBlocking
         }
         val text = request.charSequenceText?.toString()
         if (text.isNullOrBlank()) {
             callback.done()
-            return
+            return@runBlocking
         }
 
         // 2. 获取双重锁：WakeLock (CPU) + WifiLock (网络)
-        // 这一步对于 Play 图书这种可能在后台/关屏播放的场景至关重要
         acquireWakeLock()
         acquireWifiLock()
 
@@ -561,16 +565,22 @@ class TalkifyTtsService : TextToSpeechService() {
             if (engineId == null || engine == null) {
                 TtsLogger.e("processRequestSynchronously: engine not ready")
                 callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_NO_ENGINE))
-                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_engine_not_ready))
-                return
+                TalkifyNotificationHelper.sendSystemNotification(
+                    this@TalkifyTtsService,
+                    getString(R.string.tts_error_engine_not_ready)
+                )
+                return@runBlocking
             }
 
             val config = getEngineConfigRepository(engineId).getConfig(engineId)
             if (!engine.isConfigured(config)) {
                 TtsLogger.e("processRequestSynchronously: config not ready")
                 callback.error(TtsErrorCode.toAndroidError(TtsErrorCode.ERROR_ENGINE_NOT_CONFIGURED))
-                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_config_not_ready))
-                return
+                TalkifyNotificationHelper.sendSystemNotification(
+                    this@TalkifyTtsService,
+                    getString(R.string.tts_error_config_not_ready)
+                )
+                return@runBlocking
             }
             if (config.voiceId.isNotBlank() && request.voiceName.isNotBlank()) {
                 if (config.voiceId != request.voiceName) {
@@ -582,98 +592,86 @@ class TalkifyTtsService : TextToSpeechService() {
                 pitch = request.pitch.toFloat(),
                 speechRate = request.speechRate.toFloat(),
                 language = request.language
-                // volume 使用默认值 1.0f（SynthesisRequest 不直接提供 volume 参数）
             )
 
             // 4. 初始化音频参数并通知系统开始
             val audioConfig = engine.getAudioConfig()
-            // 必须在写入任何数据前调用 start，否则会报 -1 错误
             callback.start(
                 audioConfig.sampleRate,
                 audioConfig.audioFormat,
                 audioConfig.channelCount
             )
 
-            // 5. 设置同步门闩 (Latch)
-            // 我们需要阻塞当前函数，直到 callback.done() 被调用
-            synthesisLatch = java.util.concurrent.CountDownLatch(1)
-            var synthesisError: Int? = null
             var synthesisErrorMessage: String? = null
 
-            // 6. 执行合成
-            engine.synthesize(text, params, config, object : TtsSynthesisListener {
-                override fun onSynthesisStarted() {
-                    TtsLogger.d("Synthesis started callback")
-                }
+            // 5. 执行合成 (使用协程挂起)
+            val result = withTimeoutOrNull(120_000L) {
+                suspendCancellableCoroutine { continuation ->
+                    activeContinuation = continuation
 
-                override fun onAudioAvailable(
-                    audioData: ByteArray,
-                    sampleRate: Int,
-                    audioFormat: Int,
-                    channelCount: Int
-                ) {
-                    // 直接将音频数据分块写入系统回调
-                    val maxChunkSize = 4096
-                    var offset = 0
-                    while (offset < audioData.size) {
-                        val chunkSize = minOf(maxChunkSize, audioData.size - offset)
-                        val chunk = audioData.copyOfRange(offset, offset + chunkSize)
-                        // 注意：如果 callback 失效，这里会抛出异常，会被外层 catch 捕获，这是安全的
-                        callback.audioAvailable(chunk, 0, chunk.size)
-                        offset += chunkSize
-                    }
-                }
+                    engine.synthesize(text, params, config, object : TtsSynthesisListener {
+                        override fun onSynthesisStarted() {
+                            TtsLogger.d("Synthesis started callback")
+                        }
 
-                override fun onSynthesisCompleted() {
-                    TtsLogger.d("Synthesis completed")
-                    // 关键修复：必须解锁主流程
-                    synthesisLatch?.countDown()
-                }
+                        override fun onAudioAvailable(
+                            audioData: ByteArray,
+                            sampleRate: Int,
+                            audioFormat: Int,
+                            channelCount: Int
+                        ) {
+                            val maxChunkSize = 4096
+                            var offset = 0
+                            while (offset < audioData.size) {
+                                val chunkSize = minOf(maxChunkSize, audioData.size - offset)
+                                val chunk = audioData.copyOfRange(offset, offset + chunkSize)
+                                callback.audioAvailable(chunk, 0, chunk.size)
+                                offset += chunkSize
+                            }
+                        }
 
-                override fun onError(error: String) {
-                    TtsLogger.e("Synthesis error: $error")
-                    synthesisError = TtsErrorCode.inferErrorCodeFromMessage(error)
-                    synthesisErrorMessage = error
-                    // 关键修复：发生错误也必须解锁，否则会导致服务假死 2 分钟
-                    synthesisLatch?.countDown()
-                }
-            })
+                        override fun onSynthesisCompleted() {
+                            TtsLogger.d("Synthesis completed")
+                            if (continuation.isActive) continuation.resume(TtsErrorCode.SUCCESS)
+                        }
 
-            // 7. 阻塞等待
-            // Play Books 会在这里卡住等待，直到合成完成或超时
-            // 设置 120 秒超时防止网络永久挂起
-            val finished = synthesisLatch?.await(120, java.util.concurrent.TimeUnit.SECONDS)
-
-            if (finished == true) {
-                val finalError = synthesisError
-                if (finalError != null) {
-                    // 确实发生了错误
-                    callback.error(TtsErrorCode.toAndroidError(finalError))
-                    TalkifyNotificationHelper.sendSystemNotification(
-                        this,
-                        TtsErrorCode.getErrorMessage(finalError, synthesisErrorMessage)
-                    )
-                } else {
-                    // 正常完成
-                    callback.done()
+                        override fun onError(error: String) {
+                            TtsLogger.e("Synthesis error: $error")
+                            synthesisErrorMessage = error
+                            val errorCode = TtsErrorCode.inferErrorCodeFromMessage(error)
+                            if (continuation.isActive) continuation.resume(errorCode)
+                        }
+                    })
                 }
-            } else {
+            }
+
+            // 6. 处理结果
+            if (result == null) {
                 // 等待超时
-                TtsLogger.e("Synthesis timed out waiting for latch")
-                // 尝试终止引擎请求
+                TtsLogger.e("Synthesis timed out")
                 try { engine.stop() } catch (_: Exception) {}
                 callback.error(TextToSpeech.ERROR_NETWORK_TIMEOUT)
                 TalkifyNotificationHelper.sendSystemNotification(
-                    this,
+                    this@TalkifyTtsService,
                     TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_NETWORK_TIMEOUT)
                 )
+            } else if (result != TtsErrorCode.SUCCESS) {
+                // 发生错误
+                callback.error(TtsErrorCode.toAndroidError(result))
+                TalkifyNotificationHelper.sendSystemNotification(
+                    this@TalkifyTtsService,
+                    TtsErrorCode.getErrorMessage(result, synthesisErrorMessage)
+                )
+            } else {
+                // 正常完成
+                callback.done()
             }
 
         } catch (_: InterruptedException) {
             TtsLogger.w("Synthesis interrupted")
             callback.error(TextToSpeech.ERROR_SERVICE)
             TalkifyNotificationHelper.sendSystemNotification(
-                this,
+                this@TalkifyTtsService,
                 TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_GENERIC, "Synthesis interrupted")
             )
             Thread.currentThread().interrupt()
@@ -681,13 +679,12 @@ class TalkifyTtsService : TextToSpeechService() {
             TtsLogger.e("Critical error in processRequestSynchronously", e)
             callback.error(TextToSpeech.ERROR_SYNTHESIS)
             TalkifyNotificationHelper.sendSystemNotification(
-                this,
+                this@TalkifyTtsService,
                 TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_UNKNOWN, e.message)
             )
         } finally {
-            // 8. 统一清理资源
-            // 无论成功还是失败，都要释放锁，防止耗电
-            synthesisLatch = null
+            // 7. 统一清理资源
+            activeContinuation = null
             isSynthesisInProgress.set(false)
             stopForegroundServiceIfIdle()
             releaseWifiLock()
@@ -735,12 +732,12 @@ class TalkifyTtsService : TextToSpeechService() {
         TtsLogger.d("onStop called")
         isSynthesisInProgress.set(false)
 
-        val latch = synthesisLatch
-        if (latch != null && latch.count > 0) {
-            TtsLogger.d("onStop: counting down synthesis latch")
-            latch.countDown()
+        val continuation = activeContinuation
+        if (continuation != null && continuation.isActive) {
+            TtsLogger.d("onStop: cancelling active continuation")
+            continuation.cancel()
         }
-        synthesisLatch = null
+        activeContinuation = null
 
         try {
             currentEngine?.stop()

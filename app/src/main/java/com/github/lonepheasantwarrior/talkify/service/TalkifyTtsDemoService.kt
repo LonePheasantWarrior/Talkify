@@ -60,14 +60,17 @@ class TalkifyTtsDemoService(
         lastErrorMessage = null
         notifyStateChange()
 
-        val engine = TtsEngineFactory.createEngine(engineId)
+        var engine = currentEngine
         if (engine == null) {
-            TtsLogger.e("Failed to create engine: $engineId")
-            onError("无法创建引擎：$engineId")
-            return
+            engine = TtsEngineFactory.createEngine(engineId)
+            if (engine == null) {
+                TtsLogger.e("Failed to create engine: $engineId")
+                onError("无法创建引擎：$engineId")
+                return
+            }
+            currentEngine = engine
         }
 
-        currentEngine = engine
         currentState = STATE_PLAYING
         notifyStateChange()
 
@@ -157,14 +160,17 @@ class TalkifyTtsDemoService(
                 TtsLogger.e("Error stopping audio player: ${e.message}", e)
             }
 
-            currentEngine?.release()
-            currentEngine = null
+            try {
+                currentEngine?.stop()
+            } catch (e: Exception) {
+                TtsLogger.e("Error stopping engine: ${e.message}", e)
+            }
 
             if (currentState != STATE_STOPPED) {
-                if (lastErrorMessage != null) {
-                    currentState = STATE_ERROR
+                currentState = if (lastErrorMessage != null) {
+                    STATE_ERROR
                 } else {
-                    currentState = STATE_IDLE
+                    STATE_IDLE
                 }
                 notifyStateChange()
             }
@@ -184,6 +190,12 @@ class TalkifyTtsDemoService(
     fun release() {
         TtsLogger.d("Releasing service")
         stop()
+        try {
+            currentEngine?.release()
+        } catch (e: Exception) {
+            TtsLogger.e("Error releasing engine: ${e.message}", e)
+        }
+        currentEngine = null
         serviceScope.cancel()
         currentState = STATE_IDLE
         lastErrorMessage = null
