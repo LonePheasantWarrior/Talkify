@@ -31,7 +31,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -62,9 +61,7 @@ import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3Tt
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsVoiceRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2ConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2VoiceRepository
-import com.github.lonepheasantwarrior.talkify.service.TalkifyTtsDemoService
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
-import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.ui.components.BatteryOptimizationDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.ConfigBottomSheet
 import com.github.lonepheasantwarrior.talkify.ui.components.EngineSelector
@@ -72,8 +69,8 @@ import com.github.lonepheasantwarrior.talkify.ui.components.NetworkBlockedDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.NotificationPermissionDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.UpdateDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.VoicePreview
+import com.github.lonepheasantwarrior.talkify.ui.viewmodel.MainViewModel
 import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupState
-import com.github.lonepheasantwarrior.talkify.ui.viewmodel.StartupViewModel
 import kotlinx.coroutines.launch
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
@@ -81,7 +78,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MainScreen(
     modifier: Modifier = Modifier,
-    viewModel: StartupViewModel = viewModel()
+    viewModel: MainViewModel = viewModel()
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
@@ -135,11 +132,7 @@ fun MainScreen(
         mutableStateOf(defaultEngine)
     }
 
-    val demoService = remember(currentEngine.id) {
-        TalkifyTtsDemoService(currentEngine.id)
-    }
-
-    var isPlaying by remember { mutableStateOf(false) }
+    // Demo Service logic moved to ViewModel
 
     LaunchedEffect(appConfigRepository) {
         val savedEngineId = appConfigRepository.getSelectedEngineId()
@@ -152,34 +145,22 @@ fun MainScreen(
         }
     }
 
-    DisposableEffect(currentEngine.id) {
-        demoService.setStateListener { state, errorMessage ->
-            when (state) {
-                TalkifyTtsDemoService.STATE_IDLE -> {
-                    isPlaying = false
-                }
-                TalkifyTtsDemoService.STATE_PLAYING -> {
-                    isPlaying = true
-                }
-                TalkifyTtsDemoService.STATE_STOPPED -> {
-                    isPlaying = false
-                }
-                TalkifyTtsDemoService.STATE_ERROR -> {
-                    isPlaying = false
-                    val displayMessage = errorMessage ?: "播放失败，请检查配置"
-                    scope.launch {
-                        snackbarHostState.showSnackbar(displayMessage)
-                    }
-                }
+    // Demo state observation
+    val isPlaying by viewModel.isDemoPlaying.collectAsState()
+    val demoError by viewModel.demoErrorMessage.collectAsState()
+    
+    LaunchedEffect(demoError) {
+        demoError?.let { msg ->
+            scope.launch {
+                snackbarHostState.showSnackbar(msg)
             }
+            viewModel.clearDemoError()
         }
-        onDispose { }
     }
 
     var availableVoices by remember { mutableStateOf<List<VoiceInfo>>(emptyList()) }
     var selectedVoice by remember { mutableStateOf<VoiceInfo?>(null) }
 
-    // 修正方案：
     val sampleTexts = stringArrayResource(R.array.texts)
     val defaultInputText = remember(sampleTexts) {
         sampleTexts.random()
@@ -196,12 +177,6 @@ fun MainScreen(
         val voices = getVoiceRepository(currentEngine.id).getVoicesForEngine(currentEngine)
         availableVoices = voices
         selectedVoice = availableVoices.find { it.voiceId == savedConfig.voiceId } ?: voices.firstOrNull()
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            demoService.release()
-        }
     }
 
     Scaffold(
@@ -272,18 +247,9 @@ fun MainScreen(
                     }
                 }
                 StartupState.NetworkBlocked -> {
-                    // 显示网络阻塞弹窗
                     NetworkBlockedDialog(
                         onOpenSettings = {
                             viewModel.openSystemSettings()
-                            // 使用 Launcher 并没有意义，因为 ACTION_APPLICATION_DETAILS_SETTINGS 不返回 result
-                            // 但我们可以通过生命周期或者简单的重试机制
-                            // 这里简单处理：点击后打开设置，并没有立即重试。用户切回来后可能需要重试机制？
-                            // 实际上 ViewModel 可以在 onResume 时重试，但 Compose 中没有直接的 onResume。
-                            // 可以在 MainScreen 中监听生命周期。为了简单，我们让用户手动重试或者依靠 NetworkBlockedDialog 自身的退出。
-                            // 改进：这里直接打开设置，用户手动切回。我们可以给 NetworkBlockedDialog 加一个重试按钮？
-                            // 或者，在 Dialog 中点击"去设置"后，ViewModel 等待一段时间重试？
-                            // 最简单的：利用 onNetworkRetry
                         },
                         onExit = {
                             activity?.finish()
@@ -351,18 +317,10 @@ fun MainScreen(
                                     return@VoicePreview
                                 }
 
-                                val params = SynthesisParams(
-                                    pitch = 100.0f,
-                                    speechRate = 100.0f,
-                                    volume = 100.0f
-                                )
-
-                                demoService.speak(inputText, config, params)
-                                isPlaying = true
+                                viewModel.playDemo(currentEngine.id, inputText, config)
                             },
                             onStopClick = {
-                                demoService.stop()
-                                isPlaying = false
+                                viewModel.stopDemo()
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -397,18 +355,13 @@ fun MainScreen(
                         val hasRequestedBefore = viewModel.hasRequestedNotificationPermission()
 
                         if (!shouldShowRationale && hasRequestedBefore) {
-                            // 情况：系统不再弹窗（永久拒绝或厂商限制） -> 跳转设置页
                             viewModel.openNotificationSettings()
-                            // 跳转后视为本次处理结束，进入下一步（或者用户回来后下次启动再检查）
-                            // 这里我们选择让用户去设置，然后继续流程
                             viewModel.onNotificationPermissionResult()
                         } else {
-                            // 情况：首次请求或需要显示原理 -> 请求权限
                             viewModel.markNotificationPermissionRequested()
                             notificationPermissionLauncher.launch(permission)
                         }
                     } else {
-                        // Fallback
                         notificationPermissionLauncher.launch(permission)
                     }
                 },

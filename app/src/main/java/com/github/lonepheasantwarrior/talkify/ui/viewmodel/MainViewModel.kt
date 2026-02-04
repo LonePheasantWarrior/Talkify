@@ -5,6 +5,7 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateCheckResult
 import com.github.lonepheasantwarrior.talkify.domain.model.UpdateInfo
 import com.github.lonepheasantwarrior.talkify.domain.repository.AppConfigRepository
@@ -13,6 +14,7 @@ import com.github.lonepheasantwarrior.talkify.infrastructure.app.permission.Perm
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.power.PowerOptimizationHelper
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.repo.SharedPreferencesAppConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.app.update.UpdateChecker
+import com.github.lonepheasantwarrior.talkify.service.TalkifyTtsDemoService
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,17 +39,15 @@ sealed class StartupState {
 }
 
 /**
- * 启动流程 ViewModel
+ * 主界面 ViewModel
  *
- * 负责编排应用启动时的各种检查任务：
- * 1. 网络连通性 (阻塞性)
- * 2. 通知权限 (引导性)
- * 3. 电池优化 (引导性)
- * 4. 应用更新 (非阻塞性)
+ * 负责：
+ * 1. 应用启动时的检查流程（网络、权限、更新等）
+ * 2. 管理主界面的 TTS 试听功能（Demo）
  */
-class StartupViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val logTag = "StartupViewModel"
+    private val logTag = "MainViewModel"
     private val context = application
 
     private val appConfigRepository: AppConfigRepository by lazy {
@@ -55,11 +55,23 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     }
     private val updateChecker by lazy { UpdateChecker() }
 
+    // --- 启动流程状态 ---
     private val _uiState = MutableStateFlow<StartupState>(StartupState.CheckingNetwork)
     val uiState: StateFlow<StartupState> = _uiState.asStateFlow()
 
+    // --- 配置面板状态 ---
     private val _isConfigSheetOpen = MutableStateFlow(false)
     val isConfigSheetOpen: StateFlow<Boolean> = _isConfigSheetOpen.asStateFlow()
+
+    // --- Demo 试听状态 ---
+    private var demoService: TalkifyTtsDemoService? = null
+    private var currentDemoEngineId: String? = null
+
+    private val _isDemoPlaying = MutableStateFlow(false)
+    val isDemoPlaying: StateFlow<Boolean> = _isDemoPlaying.asStateFlow()
+
+    private val _demoErrorMessage = MutableStateFlow<String?>(null)
+    val demoErrorMessage: StateFlow<String?> = _demoErrorMessage.asStateFlow()
 
     init {
         // ViewModel 初始化时自动开始检查流程
@@ -68,7 +80,6 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
 
     /**
      * 开始启动检查序列
-     * 可以从外部（例如从设置页返回）重新触发
      */
     fun startStartupSequence() {
         viewModelScope.launch {
@@ -84,13 +95,49 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
         _isConfigSheetOpen.value = false
     }
 
-    // --- 步骤 1: 网络检查 ---
+    // --- Demo 功能 ---
+
+    fun playDemo(engineId: String, text: String, config: BaseEngineConfig) {
+        if (demoService == null || currentDemoEngineId != engineId) {
+            TtsLogger.d(logTag) { "Initializing Demo Service for engine: $engineId" }
+            demoService?.release()
+            demoService = TalkifyTtsDemoService(engineId).apply {
+                setStateListener { state, errorMessage ->
+                    _isDemoPlaying.value = state == TalkifyTtsDemoService.STATE_PLAYING
+                    if (state == TalkifyTtsDemoService.STATE_ERROR) {
+                        _demoErrorMessage.value = errorMessage
+                    }
+                }
+            }
+            currentDemoEngineId = engineId
+        }
+
+        // 清除之前的错误信息
+        _demoErrorMessage.value = null
+        demoService?.speak(text, config)
+    }
+
+    fun stopDemo() {
+        demoService?.stop()
+    }
+
+    fun clearDemoError() {
+        _demoErrorMessage.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        TtsLogger.d(logTag) { "ViewModel cleared, releasing resources" }
+        demoService?.release()
+        demoService = null
+    }
+
+    // --- 启动流程实现 (步骤 1: 网络检查) ---
     private suspend fun checkNetworkStep() {
         _uiState.value = StartupState.CheckingNetwork
         TtsLogger.d(logTag) { "Step 1: Checking Network..." }
 
         if (!PermissionChecker.hasInternetPermission(context)) {
-            // 理论上 Manifest 声明了就有，除非是特殊系统。这里简单处理为网络阻塞。
             TtsLogger.w(logTag) { "No internet permission" }
             _uiState.value = StartupState.NetworkBlocked
             return
@@ -187,27 +234,18 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onNotificationPermissionResult() {
-        // 无论授权与否，只要用户做出了选择，就继续下一步
-        // 如果拒绝，只要没勾选"不再询问"（系统层面），下次启动还会检查。
-        // 如果想实现"拒绝后不再问"，可以在这里记录 skipped。
-        // 当前逻辑是：只有点击弹窗的"以后再说"才算 skipped。
-        // 点击系统权限框的拒绝不算 skipped，下次还弹。这符合逻辑。
         checkBatteryStep()
     }
 
     fun onSkipNotificationPermission() {
-        // 用户点击"以后再说"，不保存跳过状态，下次启动继续检查
         checkBatteryStep()
     }
 
     fun onBatteryOptimizationResult() {
-        // 用户从电池设置页返回（或点击了去设置），继续下一步（检查更新）
-        // 这里不强求结果，下次启动再检查
         checkUpdateStep()
     }
     
     fun onBatteryOptimizationSkipped() {
-        // 电池优化弹窗点击了"以后再说" -> (虽然我们取消了持久化，但这里的动作意味着关闭弹窗继续流程)
         checkUpdateStep()
     }
 
@@ -245,7 +283,6 @@ class StartupViewModel(application: Application) : AndroidViewModel(application)
             }
             context.startActivity(intent)
         } catch (_: Exception) {
-            // Fallback to generic settings if notification settings fail
             openSystemSettings()
         }
     }

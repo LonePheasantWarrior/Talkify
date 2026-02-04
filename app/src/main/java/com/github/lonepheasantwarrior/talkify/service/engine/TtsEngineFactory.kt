@@ -52,61 +52,6 @@ object TtsEngineFactory {
     }
 
     /**
-     * 检查引擎 ID 是否有效（存在于注册表）
-     *
-     * @param engineId 引擎 ID
-     * @return 是否有效
-     */
-    fun isValidEngineId(engineId: String): Boolean {
-        return TtsEngineRegistry.contains(engineId)
-    }
-
-    /**
-     * 获取所有已注册的引擎 ID 列表
-     *
-     * @return 引擎 ID 列表
-     */
-    fun getRegisteredEngineIds(): List<String> {
-        return getEngines().keys.toList()
-    }
-
-    /**
-     * 获取引擎描述信息
-     *
-     * @param engineId 引擎 ID
-     * @return 引擎描述，未找到返回 null
-     */
-    fun getEngineDescription(engineId: String): String? {
-        if (!isRegistered(engineId)) {
-            return null
-        }
-        val engine = createEngine(engineId)
-        return engine?.getEngineName()
-    }
-
-    /**
-     * 检查引擎是否已配置
-     *
-     * @param engineId 引擎 ID
-     * @return 是否已配置
-     */
-    fun isEngineConfigured(engineId: String): Boolean {
-        return isRegistered(engineId) && isValidEngineId(engineId)
-    }
-
-    /**
-     * 获取所有注册的引擎信息
-     *
-     * @return 引擎信息列表
-     */
-    fun getAllEngineInfo(): List<Pair<String, String>> {
-        return getEngines().map { (id, _) ->
-            val engine = createEngine(id)
-            id to (engine?.getEngineName() ?: id)
-        }
-    }
-
-    /**
      * 注册新引擎（用于测试或动态注册）
      *
      * @param engineId 引擎 ID
