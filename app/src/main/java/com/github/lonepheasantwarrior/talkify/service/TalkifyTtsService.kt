@@ -650,6 +650,7 @@ class TalkifyTtsService : TextToSpeechService() {
             // 我们需要阻塞当前函数，直到 callback.done() 被调用
             synthesisLatch = java.util.concurrent.CountDownLatch(1)
             var synthesisError: Int? = null
+            var synthesisErrorMessage: String? = null
 
             // 6. 执行合成
             engine.synthesize(text, params, config, object : TtsSynthesisListener {
@@ -684,6 +685,7 @@ class TalkifyTtsService : TextToSpeechService() {
                 override fun onError(error: String) {
                     TtsLogger.e("Synthesis error: $error")
                     synthesisError = inferErrorCodeFromMessage(error)
+                    synthesisErrorMessage = error
                     // 关键修复：发生错误也必须解锁，否则会导致服务假死 2 分钟
                     synthesisLatch?.countDown()
                 }
@@ -697,8 +699,12 @@ class TalkifyTtsService : TextToSpeechService() {
             if (finished == true) {
                 if (synthesisError != null) {
                     // 确实发生了错误
-                    callback.error(TtsErrorCode.toAndroidError(synthesisError))
-                    TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+                    val errorCode = synthesisError!!
+                    callback.error(TtsErrorCode.toAndroidError(errorCode))
+                    TalkifyNotificationHelper.sendSystemNotification(
+                        this,
+                        TtsErrorCode.getErrorMessage(errorCode, synthesisErrorMessage)
+                    )
                 } else {
                     // 正常完成
                     callback.done()
@@ -709,18 +715,27 @@ class TalkifyTtsService : TextToSpeechService() {
                 // 尝试终止引擎请求
                 try { engine.stop() } catch (_: Exception) {}
                 callback.error(TextToSpeech.ERROR_NETWORK_TIMEOUT)
-                TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+                TalkifyNotificationHelper.sendSystemNotification(
+                    this,
+                    TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_NETWORK_TIMEOUT)
+                )
             }
 
         } catch (_: InterruptedException) {
             TtsLogger.w("Synthesis interrupted")
             callback.error(TextToSpeech.ERROR_SERVICE)
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+            TalkifyNotificationHelper.sendSystemNotification(
+                this,
+                TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_GENERIC, "Synthesis interrupted")
+            )
             Thread.currentThread().interrupt()
         } catch (e: Exception) {
             TtsLogger.e("Critical error in processRequestSynchronously", e)
             callback.error(TextToSpeech.ERROR_SYNTHESIS)
-            TalkifyNotificationHelper.sendSystemNotification(this, getString(R.string.tts_error_synthesis_failed))
+            TalkifyNotificationHelper.sendSystemNotification(
+                this,
+                TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_UNKNOWN, e.message)
+            )
         } finally {
             // 8. 统一清理资源
             // 无论成功还是失败，都要释放锁，防止耗电

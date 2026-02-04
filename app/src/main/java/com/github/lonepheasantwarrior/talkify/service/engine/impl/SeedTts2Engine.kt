@@ -497,7 +497,7 @@ class SeedTts2Engine : AbstractTtsEngine() {
                 45000005 -> "余额不足：请充值后再试 (code: $code)"
                 else -> "语音合成失败：$message (code: $code)"
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_SYNTHESIS_FAILED)
         }
     }

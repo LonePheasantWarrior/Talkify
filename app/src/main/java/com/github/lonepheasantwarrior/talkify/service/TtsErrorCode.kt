@@ -70,6 +70,11 @@ object TtsErrorCode {
             }
         }
 
+        // 避免错误信息重复：如果 detailMessage 已经包含了 baseMessage，则不再重复拼接
+        if (finalDetailMessage != null && finalDetailMessage.contains(baseMessage)) {
+            return finalDetailMessage
+        }
+
         return when (errorCode) {
             ERROR_SYNTHESIS_FAILED -> "语音合成失败: $finalDetailMessage"
             ERROR_UNKNOWN -> "发生未知错误: $finalDetailMessage"
