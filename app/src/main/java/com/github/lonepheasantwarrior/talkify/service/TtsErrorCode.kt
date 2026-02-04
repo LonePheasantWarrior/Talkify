@@ -1,5 +1,7 @@
 package com.github.lonepheasantwarrior.talkify.service
 
+import org.json.JSONObject
+
 /**
  * TTS 服务错误码定义
  *
@@ -45,6 +47,33 @@ object TtsErrorCode {
             ERROR_API_AUTH_FAILED -> "认证失败，请检查 API Key 配置"
             ERROR_NOT_IMPLEMENTED -> "该引擎功能尚未实现"
             else -> "发生错误（错误码：$errorCode）"
+        }
+    }
+
+    fun getErrorMessage(errorCode: Int, detailMessage: String? = null): String {
+        val baseMessage = getErrorMessage(errorCode)
+        if (detailMessage.isNullOrBlank()) {
+            return baseMessage
+        }
+
+        var finalDetailMessage = detailMessage
+        // 尝试解析 JSON 格式的错误信息
+        if (detailMessage.trim().startsWith("{") && detailMessage.trim().endsWith("}")) {
+            try {
+                val json = JSONObject(detailMessage)
+                val msg = json.optString("message")
+                if (msg.isNotBlank()) {
+                    finalDetailMessage = msg
+                }
+            } catch (e: Exception) {
+                // 解析失败或不是标准 JSON，保留原样
+            }
+        }
+
+        return when (errorCode) {
+            ERROR_SYNTHESIS_FAILED -> "语音合成失败: $finalDetailMessage"
+            ERROR_UNKNOWN -> "发生未知错误: $finalDetailMessage"
+            else -> "$baseMessage ($finalDetailMessage)"
         }
     }
 

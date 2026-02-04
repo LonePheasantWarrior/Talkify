@@ -144,7 +144,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
         } catch (e: Exception) {
             val (errorCode, errorMessage) = mapExceptionToErrorCode(e)
             logError("Synthesis error: $errorMessage", e)
-            listener.onError(TtsErrorCode.getErrorMessage(errorCode))
+            listener.onError(TtsErrorCode.getErrorMessage(errorCode, errorMessage))
         }
     }
 
@@ -155,24 +155,24 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
             }
 
             is UploadFileException -> {
-                TtsErrorCode.ERROR_SYNTHESIS_FAILED to "上传文件失败：${e.message}"
+                TtsErrorCode.ERROR_SYNTHESIS_FAILED to (e.message ?: "Upload failed")
             }
 
             is ApiException -> {
                 val message = e.message ?: ""
-                when {
+                val errorCode = when {
                     message.contains("rate limit", ignoreCase = true) || message.contains(
                         "429",
                         ignoreCase = true
                     ) -> {
-                        TtsErrorCode.ERROR_API_RATE_LIMITED to "API 调用频率超限，请稍后重试"
+                        TtsErrorCode.ERROR_API_RATE_LIMITED
                     }
 
                     message.contains("401", ignoreCase = true) || message.contains(
                         "Unauthorized",
                         ignoreCase = true
                     ) || message.contains("invalid api_key", ignoreCase = true) -> {
-                        TtsErrorCode.ERROR_API_AUTH_FAILED to "API Key 无效或已过期"
+                        TtsErrorCode.ERROR_API_AUTH_FAILED
                     }
 
                     message.contains("500", ignoreCase = true) || message.contains(
@@ -182,13 +182,14 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
                         "504",
                         ignoreCase = true
                     ) -> {
-                        TtsErrorCode.ERROR_API_SERVER_ERROR to "服务器暂时不可用，请稍后重试"
+                        TtsErrorCode.ERROR_API_SERVER_ERROR
                     }
 
                     else -> {
-                        TtsErrorCode.ERROR_SYNTHESIS_FAILED to "API 调用失败：${e.message}"
+                        TtsErrorCode.ERROR_SYNTHESIS_FAILED
                     }
                 }
+                errorCode to message
             }
 
             is SocketTimeoutException -> {
@@ -242,7 +243,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
                 } catch (e: Exception) {
                     logError("Error processing audio chunk", e)
                     val (errorCode, errorMessage) = mapExceptionToErrorCode(e)
-                    listener.onError(TtsErrorCode.getErrorMessage(errorCode))
+                    listener.onError(TtsErrorCode.getErrorMessage(errorCode, errorMessage))
                     dispose()
                 }
             }
@@ -250,7 +251,7 @@ class Qwen3TtsEngine : AbstractTtsEngine() {
             override fun onError(throwable: Throwable) {
                 logError("Stream error for chunk $index", throwable)
                 val (errorCode, errorMessage) = mapExceptionToErrorCode(throwable as Exception)
-                listener.onError(TtsErrorCode.getErrorMessage(errorCode))
+                listener.onError(TtsErrorCode.getErrorMessage(errorCode, errorMessage))
             }
 
             override fun onComplete() {

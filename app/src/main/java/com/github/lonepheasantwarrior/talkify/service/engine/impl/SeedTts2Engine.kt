@@ -356,10 +356,11 @@ class SeedTts2Engine : AbstractTtsEngine() {
 
                             // 错误
                             code > 0 -> {
-                                logError("API error: code=$code, message=${json.optString("message")}")
+                                val errMsg = json.optString("message")
+                                logError("API error: code=$code, message=$errMsg")
                                 hasError = true
                                 withContext(Dispatchers.Main) {
-                                    listener.onError(TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
+                                    listener.onError(errMsg)
                                 }
                                 break
                             }
@@ -472,9 +473,20 @@ class SeedTts2Engine : AbstractTtsEngine() {
     private fun parseVolcEngineError(errorBody: String): String {
         return try {
             val json = JSONObject(errorBody)
+            // 优先尝试直接从根节点获取 message (Doubao 2.0 structure)
+            var message = json.optString("message", "")
+            
+            // 如果根节点没有，尝试从 header 获取 (Legacy structure)
             val header = json.optJSONObject("header")
-            val code = header?.optInt("code", 0) ?: 0
-            val message = header?.optString("message", "") ?: ""
+            val code = header?.optInt("code", 0) ?: json.optInt("code", 0)
+            
+            if (message.isBlank()) {
+                message = header?.optString("message", "") ?: ""
+            }
+            
+            if (message.isNotBlank()) {
+                return message
+            }
             
             when (code) {
                 45000030 -> "资源未授权：请在火山引擎控制台开通对应服务服务 (code: $code)"
