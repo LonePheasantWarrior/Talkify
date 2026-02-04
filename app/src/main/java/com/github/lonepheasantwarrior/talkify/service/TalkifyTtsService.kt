@@ -21,6 +21,7 @@ import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineApi
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -632,14 +633,26 @@ class TalkifyTtsService : TextToSpeechService() {
 
                         override fun onSynthesisCompleted() {
                             TtsLogger.d("Synthesis completed")
-                            if (continuation.isActive) continuation.resume(TtsErrorCode.SUCCESS)
+                            if (continuation.isActive) {
+                                try {
+                                    continuation.resume(TtsErrorCode.SUCCESS)
+                                } catch (e: Exception) {
+                                    TtsLogger.d("Resuming continuation failed: ${e.message}")
+                                }
+                            }
                         }
 
                         override fun onError(error: String) {
                             TtsLogger.e("Synthesis error: $error")
                             synthesisErrorMessage = error
                             val errorCode = TtsErrorCode.inferErrorCodeFromMessage(error)
-                            if (continuation.isActive) continuation.resume(errorCode)
+                            if (continuation.isActive) {
+                                try {
+                                    continuation.resume(errorCode)
+                                } catch (e: Exception) {
+                                    TtsLogger.d("Resuming continuation failed: ${e.message}")
+                                }
+                            }
                         }
                     })
                 }
@@ -675,6 +688,8 @@ class TalkifyTtsService : TextToSpeechService() {
                 TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_GENERIC, "Synthesis interrupted")
             )
             Thread.currentThread().interrupt()
+        } catch (_: CancellationException) {
+            TtsLogger.i("Synthesis cancelled")
         } catch (e: Exception) {
             TtsLogger.e("Critical error in processRequestSynchronously", e)
             callback.error(TextToSpeech.ERROR_SYNTHESIS)
