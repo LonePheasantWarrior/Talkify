@@ -62,6 +62,8 @@ import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3Tt
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2ConfigRepository
 import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2VoiceRepository
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
+import com.github.lonepheasantwarrior.talkify.service.engine.TtsEngineFactory
+import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.ui.components.BatteryOptimizationDialog
 import com.github.lonepheasantwarrior.talkify.ui.components.ConfigBottomSheet
 import com.github.lonepheasantwarrior.talkify.ui.components.EngineSelector
@@ -107,18 +109,14 @@ fun MainScreen(
 
     // 根据当前引擎获取对应的声音仓储
     fun getVoiceRepository(engineId: String): VoiceRepository {
-        return when (engineId) {
-            EngineIds.SeedTts2.value -> SeedTts2VoiceRepository(context)
-            else -> Qwen3TtsVoiceRepository(context)
-        }
+        return TtsEngineFactory.createVoiceRepository(engineId, context)
+            ?: Qwen3TtsVoiceRepository(context)
     }
 
     // 根据当前引擎获取对应的配置仓储
     fun getConfigRepository(engineId: String): EngineConfigRepository {
-        return when (engineId) {
-            EngineIds.SeedTts2.value -> SeedTts2ConfigRepository(context)
-            else -> Qwen3TtsConfigRepository(context)
-        }
+        return TtsEngineFactory.createConfigRepository(engineId, context)
+            ?: Qwen3TtsConfigRepository(context)
     }
 
     val appConfigRepository: AppConfigRepository = remember {

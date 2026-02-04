@@ -256,13 +256,9 @@ class TalkifyTtsService : TextToSpeechService() {
      */
     private fun getEngineConfigRepository(engineId: String): EngineConfigRepository {
         return engineConfigRepositoryMap.getOrPut(engineId) {
-            when (engineId) {
-                "qwen3-tts" -> Qwen3TtsConfigRepository(applicationContext)
-                "seed-tts-2.0" -> SeedTts2ConfigRepository(applicationContext)
-                else -> {
-                    TtsLogger.w("Unknown engine ID: $engineId, using default Qwen3TtsConfigRepository")
-                    Qwen3TtsConfigRepository(applicationContext)
-                }
+            TtsEngineFactory.createConfigRepository(engineId, applicationContext) ?: run {
+                TtsLogger.w("Unknown engine ID: $engineId, using default Qwen3TtsConfigRepository")
+                Qwen3TtsConfigRepository(applicationContext)
             }
         }
     }

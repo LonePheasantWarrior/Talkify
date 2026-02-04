@@ -1,6 +1,12 @@
 package com.github.lonepheasantwarrior.talkify.service.engine
 
-import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngineRegistry
+import android.content.Context
+import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
+import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.Qwen3TtsVoiceRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2ConfigRepository
+import com.github.lonepheasantwarrior.talkify.infrastructure.engine.repo.SeedTts2VoiceRepository
 import com.github.lonepheasantwarrior.talkify.service.TtsLogger
 import com.github.lonepheasantwarrior.talkify.service.engine.impl.Qwen3TtsEngine
 import com.github.lonepheasantwarrior.talkify.service.engine.impl.SeedTts2Engine
@@ -8,33 +14,36 @@ import com.github.lonepheasantwarrior.talkify.service.engine.impl.SeedTts2Engine
 /**
  * TTS 引擎工厂
  *
- * 根据引擎 ID 创建对应的引擎实例
- * 采用工厂模式，解耦引擎实例化与使用方逻辑
- * 支持引擎热插拔，新增引擎只需在此注册
- *
- * 线程安全：使用双重检查锁定单例模式
+ * 核心职责：作为所有引擎相关组件（Engine, ConfigRepo, VoiceRepo）的统一构建入口。
+ * 设计目标：实现完全的插件化架构，业务层只需通过 ID 请求组件，无需感知具体实现类。
  */
 object TtsEngineFactory {
 
+    /**
+     * 引擎组件构建器集合
+     * 封装了创建 Engine、ConfigRepo、VoiceRepo 的工厂 lambda
+     */
+    private data class ComponentFactories(
+        val createEngine: () -> TtsEngineApi,
+        val createConfigRepo: (Context) -> EngineConfigRepository,
+        val createVoiceRepo: (Context) -> VoiceRepository
+    )
+
     @Volatile
-    private var engines: Map<String, () -> TtsEngineApi>? = null
+    private var registry: Map<String, ComponentFactories>? = null
 
     private val lock = Any()
 
     /**
      * 根据引擎 ID 创建引擎实例
-     *
-     * @param engineId 引擎 ID
-     * @return 引擎实例，未找到时返回 null
      */
     fun createEngine(engineId: String): TtsEngineApi? {
-        val factory = getEngines()[engineId]
-        if (factory == null) {
+        val factories = getRegistry()[engineId] ?: run {
             TtsLogger.w("TtsEngineFactory: engine not found - $engineId")
             return null
         }
         return try {
-            factory()
+            factories.createEngine()
         } catch (e: Exception) {
             TtsLogger.e("TtsEngineFactory: failed to create engine - $engineId", e)
             null
@@ -42,55 +51,56 @@ object TtsEngineFactory {
     }
 
     /**
-     * 检查引擎是否已注册
-     *
-     * @param engineId 引擎 ID
-     * @return 是否已注册
+     * 创建引擎配置仓储
      */
+    fun createConfigRepository(engineId: String, context: Context): EngineConfigRepository? {
+        val factories = getRegistry()[engineId] ?: return null
+        return try {
+            factories.createConfigRepo(context)
+        } catch (e: Exception) {
+            TtsLogger.e("TtsEngineFactory: failed to create config repo - $engineId", e)
+            null
+        }
+    }
+
+    /**
+     * 创建引擎声音仓储
+     */
+    fun createVoiceRepository(engineId: String, context: Context): VoiceRepository? {
+        val factories = getRegistry()[engineId] ?: return null
+        return try {
+            factories.createVoiceRepo(context)
+        } catch (e: Exception) {
+            TtsLogger.e("TtsEngineFactory: failed to create voice repo - $engineId", e)
+            null
+        }
+    }
+
     fun isRegistered(engineId: String): Boolean {
-        return getEngines().containsKey(engineId)
+        return getRegistry().containsKey(engineId)
     }
 
-    /**
-     * 注册新引擎（用于测试或动态注册）
-     *
-     * @param engineId 引擎 ID
-     * @param factory 引擎工厂函数
-     */
-    fun registerEngine(engineId: String, factory: () -> TtsEngineApi) {
-        synchronized(lock) {
-            val currentEngines = getEngines().toMutableMap()
-            currentEngines[engineId] = factory
-            engines = currentEngines
-            TtsLogger.i("TtsEngineFactory: registered engine - $engineId")
+    // --- 内部注册逻辑 ---
+
+    private fun getRegistry(): Map<String, ComponentFactories> {
+        return registry ?: synchronized(lock) {
+            registry ?: initializeRegistry().also { registry = it }
         }
     }
 
-    /**
-     * 注销引擎（用于测试）
-     *
-     * @param engineId 引擎 ID
-     */
-    fun unregisterEngine(engineId: String) {
-        synchronized(lock) {
-            val currentEngines = getEngines().toMutableMap()
-            currentEngines.remove(engineId)
-            engines = currentEngines
-            TtsLogger.i("TtsEngineFactory: unregistered engine - $engineId")
-        }
-    }
-
-    private fun getEngines(): Map<String, () -> TtsEngineApi> {
-        return engines ?: synchronized(lock) {
-            engines ?: initializeEngines().also { engines = it }
-        }
-    }
-
-    private fun initializeEngines(): Map<String, () -> TtsEngineApi> {
-        TtsLogger.d("TtsEngineFactory: initializing engines")
+    private fun initializeRegistry(): Map<String, ComponentFactories> {
+        TtsLogger.d("TtsEngineFactory: initializing registry")
         return mapOf(
-            Qwen3TtsEngine.ENGINE_ID to { Qwen3TtsEngine() },
-            SeedTts2Engine.ENGINE_ID to { SeedTts2Engine() }
+            Qwen3TtsEngine.ENGINE_ID to ComponentFactories(
+                createEngine = { Qwen3TtsEngine() },
+                createConfigRepo = { ctx -> Qwen3TtsConfigRepository(ctx) },
+                createVoiceRepo = { ctx -> Qwen3TtsVoiceRepository(ctx) }
+            ),
+            SeedTts2Engine.ENGINE_ID to ComponentFactories(
+                createEngine = { SeedTts2Engine() },
+                createConfigRepo = { ctx -> SeedTts2ConfigRepository(ctx) },
+                createVoiceRepo = { ctx -> SeedTts2VoiceRepository(ctx) }
+            )
         ).also {
             TtsLogger.i("TtsEngineFactory: ${it.size} engines registered")
         }
