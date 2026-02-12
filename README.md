@@ -53,7 +53,7 @@ Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音�
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/LonePheasantWarrior/Talkify.git
+git clone https://github.com/LonePheasantWarrior/TalkifyTTS.git
 cd Talkify
 
 # 2. 检查代码
