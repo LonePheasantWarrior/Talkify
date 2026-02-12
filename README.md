@@ -35,9 +35,9 @@ Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音�
 
 ## 🛠️ 技术栈
 
-- **语言**: Kotlin 2.3.0
+- **语言**: Kotlin 2.3.10
 - **架构**: MVVM (Model-View-ViewModel) + Clean Architecture
-- **UI**: Jetpack Compose (BOM 2026.01.01) + Material 3 Expressive
+- **UI**: Jetpack Compose (BOM 2026.02.00) + Material 3 Expressive
 - **网络**: OkHttp 4.12.0 (HTTP/2, Streaming)
 - **最低兼容**: Android 11 (API 30)
 - **目标版本**: Android 16 (API 36)
