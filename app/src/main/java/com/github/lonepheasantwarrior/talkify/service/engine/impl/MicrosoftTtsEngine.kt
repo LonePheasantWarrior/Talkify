@@ -1,23 +1,10 @@
 package com.github.lonepheasantwarrior.talkify.service.engine.impl
 
 import android.content.Context
-import android.media.AudioFormat
 import android.media.MediaCodec
-import android.media.MediaCodecInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.speech.tts.Voice
-import java.io.File
-import java.security.MessageDigest
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.MicrosoftTtsConfig
@@ -27,6 +14,7 @@ import com.github.lonepheasantwarrior.talkify.service.engine.AbstractTtsEngine
 import com.github.lonepheasantwarrior.talkify.service.engine.AudioConfig
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
@@ -37,17 +25,22 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.Random
+import java.util.TimeZone
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.min
 
 /**
  * 微软语音合成引擎实现
  *
  * 继承 [AbstractTtsEngine]，实现 TTS 引擎接口
- * 使用 WebSocket 连接到微软 Edge TTS 服务
- *
- * 引擎 ID：microsoft-tts
  * 服务提供商：Azure
  */
 class MicrosoftTtsEngine : AbstractTtsEngine() {
@@ -206,27 +199,23 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
     @Volatile
     private var currentWebSocket: WebSocket? = null
 
+    private val client = OkHttpClient()
+
     @Volatile
     private var isCancelled = false
 
-    @Volatile
     private var hasCompleted = false
 
-    @Volatile
-    private var audioBuffer = ByteArrayOutputStream()
-
-    @Volatile
     private var synthesisJob: Job? = null
 
-    private val client = OkHttpClient()
-
     val audioConfig: AudioConfig
-        @JvmName("getAudioConfigProperty") get() = AudioConfig.MICROSOFT_TTS
+        @JvmName("getAudioConfigProperty") get() = AudioConfig()
 
     override fun getEngineId(): String = ENGINE_ID
 
     override fun getEngineName(): String = ENGINE_NAME
 
+    @OptIn(DelicateCoroutinesApi::class)
     override fun synthesize(
         text: String, params: SynthesisParams, config: BaseEngineConfig, listener: TtsSynthesisListener
     ) {
@@ -252,7 +241,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
         isCancelled = false
         hasCompleted = false
-        audioBuffer.reset()
 
         synthesisJob = GlobalScope.launch(Dispatchers.IO) {
             try {
@@ -281,7 +269,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
 
         if (!isCancelled) {
-            decodeAndPlayMp3(listener)
             listener.onSynthesisCompleted()
         }
     }
@@ -295,8 +282,9 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         val done = AtomicBoolean(false)
         val error = AtomicBoolean(false)
         val lock = Object()
+        val audioBuffer = ByteArrayOutputStream()
 
-        val voice = if (config.voiceId.isNotEmpty()) config.voiceId else DEFAULT_VOICE
+        val voice = config.voiceId.ifEmpty { DEFAULT_VOICE }
         val rate = convertRate(params.speechRate)
         val volume = convertVolume(params.volume)
         val pitch = convertPitch(params.pitch)
@@ -408,63 +396,13 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         if (error.get()) {
             throw Exception("WebSocket error")
         }
-    }
 
-    private fun sendConfigMessage(webSocket: WebSocket) {
-        val configMessage = "X-Timestamp:${dateToString()}\r\n" +
-                "Content-Type:application/json; charset=utf-8\r\n" +
-                "Path:speech.config\r\n\r\n" +
-                "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{" +
-                "\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}," +
-                "\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
-        webSocket.send(configMessage)
-    }
-
-    private fun sendSsmlMessage(
-        webSocket: WebSocket,
-        voice: String,
-        rate: String,
-        volume: String,
-        pitch: String,
-        text: String
-    ) {
-        val ssml = mkssml(voice, rate, volume, pitch, text)
-        val message = ssmlHeadersPlusData(connectId(), dateToString(), ssml)
-        webSocket.send(message)
-    }
-
-    private fun parseHeaders(data: ByteArray): Map<String, String> {
-        val headers = mutableMapOf<String, String>()
-        val headerStr = String(data, Charsets.UTF_8)
-        val lines = headerStr.split("\r\n")
-        for (line in lines) {
-            val colonPos = line.indexOf(':')
-            if (colonPos != -1) {
-                val key = line.substring(0, colonPos).trim()
-                val value = line.substring(colonPos + 1).trim()
-                headers[key] = value
-            }
+        if (audioBuffer.size() > 0 && !isCancelled) {
+            decodeAndPlayMp3(audioBuffer.toByteArray(), listener)
         }
-        return headers
     }
 
-    private fun convertRate(speechRate: Float): String {
-        val ratePercent = ((speechRate - 100) / 100 * 100).toInt()
-        return if (ratePercent >= 0) "+${ratePercent}%" else "${ratePercent}%"
-    }
-
-    private fun convertVolume(volume: Float): String {
-        val volumePercent = (volume * 100 - 100).toInt()
-        return if (volumePercent >= 0) "+${volumePercent}%" else "${volumePercent}%"
-    }
-
-    private fun convertPitch(pitch: Float): String {
-        val pitchHz = ((pitch - 100) / 100 * 50).toInt()
-        return if (pitchHz >= 0) "+${pitchHz}Hz" else "${pitchHz}Hz"
-    }
-
-    private fun decodeAndPlayMp3(listener: TtsSynthesisListener) {
-        val mp3Data = audioBuffer.toByteArray()
+    private fun decodeAndPlayMp3(mp3Data: ByteArray, listener: TtsSynthesisListener) {
         if (mp3Data.isEmpty()) {
             return
         }
@@ -565,6 +503,59 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
     }
 
+    private fun sendConfigMessage(webSocket: WebSocket) {
+        val configMessage = "X-Timestamp:${dateToString()}\r\n" +
+                "Content-Type:application/json; charset=utf-8\r\n" +
+                "Path:speech.config\r\n\r\n" +
+                "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{" +
+                "\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}," +
+                "\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
+        webSocket.send(configMessage)
+    }
+
+    private fun sendSsmlMessage(
+        webSocket: WebSocket,
+        voice: String,
+        rate: String,
+        volume: String,
+        pitch: String,
+        text: String
+    ) {
+        val ssml = mkssml(voice, rate, volume, pitch, text)
+        val message = ssmlHeadersPlusData(connectId(), dateToString(), ssml)
+        webSocket.send(message)
+    }
+
+    private fun parseHeaders(data: ByteArray): Map<String, String> {
+        val headers = mutableMapOf<String, String>()
+        val headerStr = String(data, Charsets.UTF_8)
+        val lines = headerStr.split("\r\n")
+        for (line in lines) {
+            val colonPos = line.indexOf(':')
+            if (colonPos != -1) {
+                val key = line.substring(0, colonPos).trim()
+                val value = line.substring(colonPos + 1).trim()
+                headers[key] = value
+            }
+        }
+        return headers
+    }
+
+    private fun convertRate(speechRate: Float): String {
+        val ratePercent = ((speechRate - 100) / 100 * 100).toInt()
+        return if (ratePercent >= 0) "+${ratePercent}%" else "${ratePercent}%"
+    }
+
+    private fun convertVolume(volume: Float): String {
+        val volumePercent = (volume * 100 - 100).toInt()
+        return if (volumePercent >= 0) "+${volumePercent}%" else "${volumePercent}%"
+    }
+
+    private fun convertPitch(pitch: Float): String {
+        val pitchHz = ((pitch - 100) / 100 * 50).toInt()
+        return if (pitchHz >= 0) "+${pitchHz}Hz" else "${pitchHz}Hz"
+    }
+
     override fun getSupportedLanguages(): Set<String> {
         return SUPPORTED_LANGUAGES.toSet()
     }
@@ -602,28 +593,24 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
     override fun stop() {
         logInfo("Stopping synthesis")
         isCancelled = true
+        currentWebSocket?.close(1000, "Stopped by user")
+        currentWebSocket = null
         synthesisJob?.cancel()
         synthesisJob = null
-        currentWebSocket?.close(1000, "Stop requested")
-        currentWebSocket = null
     }
 
     override fun release() {
         logInfo("Releasing engine")
         isCancelled = true
+        currentWebSocket?.close(1000, "Released")
+        currentWebSocket = null
         synthesisJob?.cancel()
         synthesisJob = null
-        currentWebSocket?.close(1000, "Release")
-        currentWebSocket = null
         super.release()
     }
 
     override fun isConfigured(config: BaseEngineConfig?): Boolean {
-        val msConfig = config as? MicrosoftTtsConfig
-        var result = false
-        if (msConfig != null) {
-            result = true
-        }
+        val result = config is MicrosoftTtsConfig
         TtsLogger.d("$tag: isConfigured = $result")
         return result
     }
