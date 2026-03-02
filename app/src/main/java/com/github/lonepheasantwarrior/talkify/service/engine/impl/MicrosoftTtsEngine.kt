@@ -14,11 +14,7 @@ import com.github.lonepheasantwarrior.talkify.service.engine.AbstractTtsEngine
 import com.github.lonepheasantwarrior.talkify.service.engine.AudioConfig
 import com.github.lonepheasantwarrior.talkify.service.engine.SynthesisParams
 import com.github.lonepheasantwarrior.talkify.service.engine.TtsSynthesisListener
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -29,18 +25,16 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.Random
-import java.util.TimeZone
-import java.util.UUID
+import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.min
 
 /**
  * 微软语音合成引擎实现
  *
  * 继承 [AbstractTtsEngine]，实现 TTS 引擎接口
+ * 支持真正的流式音频合成，边接收边播放
  * 服务提供商：Azure
  */
 class MicrosoftTtsEngine : AbstractTtsEngine() {
@@ -61,6 +55,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
         private const val DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"
         private const val MAX_TEXT_LENGTH = 4096
+        private const val BUFFER_THRESHOLD = 8192 // 8KB 缓冲阈值
 
         private val SUPPORTED_LANGUAGES = arrayOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
         private val random = Random()
@@ -196,17 +191,22 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
     }
 
-    @Volatile
     private var currentWebSocket: WebSocket? = null
 
     private val client = OkHttpClient()
 
-    @Volatile
     private var isCancelled = false
 
     private var hasCompleted = false
 
     private var synthesisJob: Job? = null
+
+    // 流式播放相关变量
+    private val audioBuffer = ByteArrayOutputStream()
+    private val bytesReceived = AtomicLong(0)
+    private val done = AtomicBoolean(false)
+    private val decodeStartTime = AtomicLong(0)
+    private val firstPlaybackDone = AtomicBoolean(false)
 
     val audioConfig: AudioConfig
         @JvmName("getAudioConfigProperty") get() = AudioConfig()
@@ -215,7 +215,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
     override fun getEngineName(): String = ENGINE_NAME
 
-    @OptIn(DelicateCoroutinesApi::class)
     override fun synthesize(
         text: String, params: SynthesisParams, config: BaseEngineConfig, listener: TtsSynthesisListener
     ) {
@@ -239,37 +238,129 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
         logInfo("Starting Microsoft TTS synthesis: textLength=${text.length}, chunks=${textChunks.size}")
 
+        // 重置状态
         isCancelled = false
         hasCompleted = false
+        bytesReceived.set(0)
+        done.set(false)
+        decodeStartTime.set(0)
+        firstPlaybackDone.set(false)
+        audioBuffer.reset()
 
         synthesisJob = GlobalScope.launch(Dispatchers.IO) {
             try {
+                // 启动流式解码器
+                startStreamingDecoder(listener)
+                
+                // 处理文本块
                 processChunks(textChunks, params, msConfig, listener)
             } catch (e: Exception) {
                 logError("Synthesis error", e)
                 listener.onError("合成失败：${e.message}")
+            } finally {
+                // 标记处理完成
+                done.set(true)
             }
         }
     }
 
+    /**
+     * 启动流式音频解码器
+     * 简化为先接收完整数据，再解码播放
+     */
+    private fun startStreamingDecoder(listener: TtsSynthesisListener) {
+        GlobalScope.launch(Dispatchers.IO) {
+            try {
+                // 创建临时文件用于存储完整的音频数据
+                val tempFile = File.createTempFile("talkify-stream-", ".mp3")
+                val fileStream = java.io.FileOutputStream(tempFile)
+                
+                try {
+                    var hasNotifiedStarted = false
+                    
+                    // 等待音频数据并处理
+                    while (!isCancelled && !done.get()) {
+                        val currentBytes = bytesReceived.get()
+                        
+                        // 检查是否有数据
+                        if (currentBytes > 0 && audioBuffer.size() > 0) {
+                            if (!hasNotifiedStarted) {
+                                // 第一次收到数据，通知开始
+                                decodeStartTime.set(System.currentTimeMillis())
+                                logDebug("Receiving audio data: $currentBytes bytes")
+                                listener.onSynthesisStarted()
+                                hasNotifiedStarted = true
+                            }
+                            
+                            // 将数据写入文件
+                            val audioData = audioBuffer.toByteArray()
+                            fileStream.write(audioData)
+                            audioBuffer.reset()
+                            bytesReceived.set(0)
+                        }
+                        
+                        // 等待更多数据
+                        if (!done.get()) {
+                            delay(50)
+                        }
+                    }
+                    
+                    // 处理最后的数据
+                    if (audioBuffer.size() > 0 && !isCancelled) {
+                        val audioData = audioBuffer.toByteArray()
+                        fileStream.write(audioData)
+                        audioBuffer.reset()
+                        bytesReceived.set(0)
+                    }
+                    
+                    // 确保所有数据都已写入文件
+                    fileStream.flush()
+                    fileStream.close()
+                    
+                    // 播放完整文件
+                    if (tempFile.exists() && tempFile.length() > 0) {
+                        logDebug("Playing complete file: ${tempFile.length()} bytes")
+                        decodeAndPlayMp3(tempFile.readBytes(), listener)
+                    } else if (!hasNotifiedStarted) {
+                        // 如果没有任何数据，通知错误
+                        listener.onError("没有收到音频数据")
+                    }
+                    
+                    // 完成合成
+                    if (!isCancelled) {
+                        listener.onSynthesisCompleted()
+                    }
+                    
+                } finally {
+                    try {
+                        fileStream.close()
+                    } catch (e: Exception) {
+                        // Ignore close errors
+                    }
+                    tempFile.delete()
+                }
+                
+            } catch (e: Exception) {
+                logError("Streaming decoder error", e)
+                if (!isCancelled) {
+                    listener.onError("解码失败：${e.message}")
+                }
+            }
+        }
+    }
+    
     private suspend fun processChunks(
         chunks: List<String>,
         params: SynthesisParams,
         config: MicrosoftTtsConfig,
         listener: TtsSynthesisListener
     ) {
-        listener.onSynthesisStarted()
-
         for ((index, chunk) in chunks.withIndex()) {
             if (isCancelled) {
                 break
             }
             logDebug("Processing chunk ${index + 1}/${chunks.size}")
             synthesizeChunk(chunk, params, config, listener)
-        }
-
-        if (!isCancelled) {
-            listener.onSynthesisCompleted()
         }
     }
 
@@ -279,12 +370,11 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         config: MicrosoftTtsConfig,
         listener: TtsSynthesisListener
     ) {
-        val done = AtomicBoolean(false)
-        val error = AtomicBoolean(false)
+        val chunkDone = AtomicBoolean(false)
+        val chunkError = AtomicBoolean(false)
         val lock = Object()
-        val audioBuffer = ByteArrayOutputStream()
 
-        val voice = config.voiceId.ifEmpty { DEFAULT_VOICE }
+        val voice = if (config.voiceId.isNotEmpty()) config.voiceId else DEFAULT_VOICE
         val rate = convertRate(params.speechRate)
         val volume = convertVolume(params.volume)
         val pitch = convertPitch(params.pitch)
@@ -308,9 +398,9 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                     sendSsmlMessage(webSocket, voice, rate, volume, pitch, text)
                 } catch (e: Exception) {
                     logError("Error sending messages", e)
-                    error.set(true)
+                    chunkError.set(true)
                     synchronized(lock) {
-                        done.set(true)
+                        chunkDone.set(true)
                         lock.notify()
                     }
                 }
@@ -328,7 +418,11 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                             val audioData = data.copyOfRange(2 + headerLength, data.size)
                             val headers = parseHeaders(headerData)
                             if (headers["Path"] == "audio" && audioData.isNotEmpty()) {
-                                audioBuffer.write(audioData)
+                                // 立即将音频数据添加到缓冲区
+                                synchronized(audioBuffer) {
+                                    audioBuffer.write(audioData)
+                                    bytesReceived.addAndGet(audioData.size.toLong())
+                                }
                             }
                         }
                     }
@@ -345,7 +439,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                         val headers = parseHeaders(headerText.toByteArray())
                         if (headers["Path"] == "turn.end") {
                             synchronized(lock) {
-                                done.set(true)
+                                chunkDone.set(true)
                                 lock.notify()
                             }
                         }
@@ -362,8 +456,8 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 logDebug("WebSocket closed: $code $reason")
                 synchronized(lock) {
-                    if (!done.get()) {
-                        done.set(true)
+                    if (!chunkDone.get()) {
+                        chunkDone.set(true)
                         lock.notify()
                     }
                 }
@@ -371,16 +465,16 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 logError("WebSocket error", t)
-                error.set(true)
+                chunkError.set(true)
                 synchronized(lock) {
-                    done.set(true)
+                    chunkDone.set(true)
                     lock.notify()
                 }
             }
         })
 
         synchronized(lock) {
-            while (!done.get()) {
+            while (!chunkDone.get()) {
                 try {
                     lock.wait(60000)
                 } catch (_: InterruptedException) {
@@ -393,12 +487,8 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         currentWebSocket?.close(1000, "Done")
         currentWebSocket = null
 
-        if (error.get()) {
+        if (chunkError.get()) {
             throw Exception("WebSocket error")
-        }
-
-        if (audioBuffer.size() > 0 && !isCancelled) {
-            decodeAndPlayMp3(audioBuffer.toByteArray(), listener)
         }
     }
 
@@ -407,44 +497,56 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
             return
         }
 
+        var tempFile: File? = null
+        var codec: MediaCodec? = null
+        var extractor: MediaExtractor? = null
+        
         try {
-            val tempFile = File.createTempFile("talkify-", ".mp3")
-            try {
-                tempFile.writeBytes(mp3Data)
-                val extractor = MediaExtractor()
-                extractor.setDataSource(tempFile.absolutePath)
+            tempFile = File.createTempFile("talkify-", ".mp3")
+            tempFile.writeBytes(mp3Data)
+            extractor = MediaExtractor()
+            extractor.setDataSource(tempFile.absolutePath)
 
-                var audioTrackIndex = -1
-                for (i in 0 until extractor.trackCount) {
-                    val format = extractor.getTrackFormat(i)
-                    val mime = format.getString(MediaFormat.KEY_MIME)
-                    if (mime?.startsWith("audio/") == true) {
-                        audioTrackIndex = i
-                        break
-                    }
+            var audioTrackIndex = -1
+            for (i in 0 until extractor.trackCount) {
+                val format = extractor.getTrackFormat(i)
+                val mime = format.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("audio/") == true) {
+                    audioTrackIndex = i
+                    break
                 }
+            }
 
-                if (audioTrackIndex == -1) {
-                    throw Exception("No audio track found")
-                }
+            if (audioTrackIndex == -1) {
+                throw Exception("No audio track found")
+            }
 
-                extractor.selectTrack(audioTrackIndex)
-                val format = extractor.getTrackFormat(audioTrackIndex)
-                val mime = format.getString(MediaFormat.KEY_MIME) ?: "audio/mpeg"
+            extractor.selectTrack(audioTrackIndex)
+            val inputFormat = extractor.getTrackFormat(audioTrackIndex)
+            val mime = inputFormat.getString(MediaFormat.KEY_MIME) ?: "audio/mpeg"
 
-                val codec = MediaCodec.createDecoderByType(mime)
-                codec.configure(format, null, null, 0)
-                codec.start()
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(inputFormat, null, null, 0)
+            codec.start()
 
-                val bufferInfo = MediaCodec.BufferInfo()
-                val timeoutUs = 10000L
-                var inputDone = false
-                var outputDone = false
+            val bufferInfo = MediaCodec.BufferInfo()
+            var timeoutUs = 10000L
+            var inputDone = false
+            var outputDone = false
+            
+            var outputFormat: MediaFormat? = null
+            var sampleRate = 24000
+            var channelCount = 1
 
-                while (!outputDone && !isCancelled) {
-                    if (!inputDone) {
-                        val inputBufferIndex = codec.dequeueInputBuffer(timeoutUs)
-                        if (inputBufferIndex >= 0) {
+            while (!outputDone && !isCancelled) {
+                if (!inputDone) {
+                    val inputBufferIndex = codec.dequeueInputBuffer(timeoutUs)
+                    when {
+                        inputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {}
+                        inputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            outputFormat = codec.outputFormat
+                        }
+                        inputBufferIndex >= 0 -> {
                             val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                             inputBuffer?.let {
                                 val sampleSize = extractor.readSampleData(it, 0)
@@ -464,42 +566,77 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                             }
                         }
                     }
+                }
 
-                    var outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
-                    while (outputBufferIndex >= 0 && !isCancelled) {
+                val outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
+                when {
+                    outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                        timeoutUs = 100000L
+                    }
+                    outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        outputFormat = codec.outputFormat
+                        sampleRate = outputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        channelCount = try {
+                            outputFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        } catch (e: Exception) {
+                            1
+                        }
+                        timeoutUs = 10000L
+                    }
+                    outputBufferIndex >= 0 -> {
                         val outputBuffer = codec.getOutputBuffer(outputBufferIndex)
                         outputBuffer?.let {
                             if (bufferInfo.size > 0) {
+                                it.position(bufferInfo.offset)
+                                it.limit(bufferInfo.offset + bufferInfo.size)
                                 val pcmData = ByteArray(bufferInfo.size)
                                 it.get(pcmData)
                                 listener.onAudioAvailable(
                                     pcmData,
-                                    audioConfig.sampleRate,
+                                    sampleRate,
                                     audioConfig.audioFormat,
-                                    audioConfig.channelCount
+                                    channelCount
                                 )
                             }
                         }
                         codec.releaseOutputBuffer(outputBufferIndex, false)
-                        outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
-                    }
-
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                        outputDone = true
+                        timeoutUs = 10000L
+                        
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            outputDone = true
+                        }
                     }
                 }
-
-                codec.stop()
-                codec.release()
-                extractor.release()
-
-            } finally {
-                tempFile.delete()
             }
+
+            codec.stop()
+            codec.release()
+            codec = null
+            extractor.release()
+            extractor = null
+            tempFile?.delete()
+            tempFile = null
 
         } catch (e: Exception) {
             logError("Error decoding MP3", e)
             throw e
+        } finally {
+            try {
+                codec?.stop()
+                codec?.release()
+            } catch (e: Exception) {
+                // ignore
+            }
+            try {
+                extractor?.release()
+            } catch (e: Exception) {
+                // ignore
+            }
+            try {
+                tempFile?.delete()
+            } catch (e: Exception) {
+                // ignore
+            }
         }
     }
 
