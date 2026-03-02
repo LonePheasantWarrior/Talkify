@@ -40,6 +40,33 @@ class TencentTtsEngine : AbstractTtsEngine() {
         private val speechClient = SpeechClient()
 
         val SUPPORTED_LANGUAGES = arrayOf("zho", "eng")
+
+        private val ERROR_CODE_MAP = mapOf(
+            -400 to "客户端参数不能为空",
+            -401 to "认证信息不能为空",
+            -402 to "请求参数不能为空",
+            -403 to "监听器不能为空",
+            -404 to "应用ID不能为空",
+            -405 to "密钥ID不能为空",
+            -406 to "密钥Key不能为空",
+            -407 to "启动合成器失败",
+            -408 to "发送文本失败",
+            -409 to "连接服务器失败",
+            -410 to "状态错误",
+            3022 to "资源包配额已用尽，请检查您的资源包"
+        )
+
+        private fun getFriendlyErrorMessage(code: Int?, originalMessage: String?): String {
+            val codeValue = code ?: return "语音合成失败: ${originalMessage ?: "未知错误"}"
+            
+            val mappedMessage = ERROR_CODE_MAP[codeValue]
+            return if (mappedMessage != null) {
+                "语音合成失败: $mappedMessage (错误码: $codeValue)"
+            } else {
+                val message = originalMessage ?: "未知错误"
+                "语音合成失败: $message (错误码: $codeValue)"
+            }
+        }
     }
 
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,6 +82,9 @@ class TencentTtsEngine : AbstractTtsEngine() {
 
     @Volatile
     private var isFirstChunk = true
+
+    @Volatile
+    private var firstErrorMessage: String? = null
 
     private val voiceSampleRateMap: MutableMap<String, Int> by lazy {
         loadVoiceSampleRatesFromResource()
@@ -187,6 +217,7 @@ class TencentTtsEngine : AbstractTtsEngine() {
         isCancelled = false
         hasCompleted = false
         isFirstChunk = true
+        firstErrorMessage = null
 
         val textChunks = splitTextIntoChunks(text)
         if (textChunks.isEmpty()) {
@@ -288,9 +319,14 @@ class TencentTtsEngine : AbstractTtsEngine() {
 
                 override fun onSynthesisFail(response: SpeechSynthesizerResponse?) {
                     val errorMsg = response?.message ?: "Unknown error"
-                    logError("onSynthesisFail: $errorMsg, code=${response?.code}")
-                    engineScope.launch(Dispatchers.Main) {
-                        listener.onError("语音合成失败: $errorMsg (code=${response?.code})")
+                    val errorCode = response?.code
+                    logError("onSynthesisFail: $errorMsg, code=$errorCode")
+                    
+                    if (firstErrorMessage == null) {
+                        firstErrorMessage = getFriendlyErrorMessage(errorCode, errorMsg)
+                        engineScope.launch(Dispatchers.Main) {
+                            listener.onError(firstErrorMessage!!)
+                        }
                     }
                     chunkCompleted.complete(false)
                 }
@@ -313,8 +349,11 @@ class TencentTtsEngine : AbstractTtsEngine() {
             success
         } catch (e: Exception) {
             logError("Unexpected error during synthesis", e)
-            withContext(Dispatchers.Main) {
-                listener.onError(TtsErrorCode.getErrorMessage(TtsErrorCode.ERROR_SYNTHESIS_FAILED))
+            if (firstErrorMessage == null) {
+                firstErrorMessage = "语音合成失败: ${e.message ?: "未知错误"}"
+                withContext(Dispatchers.Main) {
+                    listener.onError(firstErrorMessage!!)
+                }
             }
             false
         } finally {
