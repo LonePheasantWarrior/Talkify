@@ -71,9 +71,23 @@
 -keep class com.tencent.cloud.stream.tts.core.ws.CommonRequest { *; }
 -keepclassmembers class * extends com.tencent.cloud.stream.tts.core.ws.CommonRequest { *; }
 
+# ==================== Lombok ProGuard 规则 ====================
+# Lombok 是编译期注解处理器，运行时不需要
+# 忽略 Lombok 相关的所有警告
+-dontwarn lombok.**
+-dontwarn org.eclipse.**
+-keep class lombok.** { *; }
+-keep class org.eclipse.** { *; }
+
 # ==================== JLayer MP3 解码库 ProGuard 规则 ====================
 # 修复 JLayer 在 Release 模式下崩溃的问题
 # 问题原因：R8/ProGuard 混淆或剔除了 JLayer 的核心类和资源文件
 
 # 保留 JLayer 所有类
 -keep class javazoom.** { *; }
+
+# 忽略 JLayer 中我们项目不使用的 Java Sound 和 Applet 相关类
+-dontwarn java.applet.**
+-dontwarn javax.sound.sampled.**
+-keep class javazoom.jl.decoder.** { *; }
+-keep class javazoom.jl.player.** { *; }
