@@ -5,7 +5,7 @@
 
 #### 云端大模型驱动的 Android TTS 引擎
 
-Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音，而是作为桥梁，将云端顶尖大模型（通义千问、豆包、腾讯云）的高质量拟人语音合成能力，通过 Android 标准 Text-to-Speech 接口赋予您的系统和阅读软件。
+Talkify 是一款基于 Android 的现代化 TTS 连接器。它不生产语音，而是作为桥梁，将云端顶尖大模型（微软、通义千问、豆包、腾讯云）的高质量拟人语音合成能力，通过 Android 标准 Text-to-Speech 接口赋予您的系统和阅读软件。
 
 <p>
   <img src="https://img.shields.io/badge/Language-Kotlin-7f52ff?style=flat-square&logo=kotlin" alt="Kotlin"/>
