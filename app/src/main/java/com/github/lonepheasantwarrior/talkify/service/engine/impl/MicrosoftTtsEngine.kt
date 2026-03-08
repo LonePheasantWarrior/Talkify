@@ -31,6 +31,8 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -67,7 +69,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
         private const val DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"
         private const val MAX_TEXT_LENGTH = 4096
-        private const val PIPE_BUFFER_SIZE = 8192 // 8KB 管道缓冲区，优化首字延迟
+        private const val PIPE_BUFFER_SIZE = 65536 // 64KB 扩容管道，防止 OkHttp 接收线程阻塞拖慢网络
 
         private val SUPPORTED_LANGUAGES = arrayOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
         private val random = Random()
@@ -212,7 +214,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         .build()
 
     private var isCancelled = false
-
     private var hasCompleted = false
 
     private val engineJob = SupervisorJob()
@@ -220,8 +221,18 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
 
     private var synthesisJob: Job? = null
 
-    override fun getEngineId(): String = ENGINE_ID
+    init {
+        // DNS 预热：前置网络层握手准备，显著降低首次合成请求时的 DNS 解析延迟
+        engineScope.launch {
+            try {
+                java.net.InetAddress.getByName("speech.platform.bing.com")
+            } catch (_: Exception) {
+                // 忽略预热异常，不影响主流程
+            }
+        }
+    }
 
+    override fun getEngineId(): String = ENGINE_ID
     override fun getEngineName(): String = ENGINE_NAME
 
     override fun synthesize(
@@ -299,8 +310,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         val url = "$WSS_URL&ConnectionId=$connectionId" +
                 "&Sec-MS-GEC=${generateSecMsGec()}&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION"
 
-        val requestBuilder = Request.Builder()
-            .url(url)
+        val requestBuilder = Request.Builder().url(url)
         getHeadersWithMuid().forEach { (key, value) ->
             requestBuilder.addHeader(key, value)
         }
@@ -311,7 +321,8 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
             PipedInputStream(pipedOutputStream, PIPE_BUFFER_SIZE)
         }
 
-        val decodeJob = engineScope.launch {
+        // 解码是 CPU 密集型操作，调度至 Default
+        val decodeJob = engineScope.launch(Dispatchers.Default) {
             decodeMp3Stream(pipedInputStream, listener)
         }
 
@@ -323,31 +334,31 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                     sendSsmlMessage(webSocket, voice, rate, volume, pitch, text)
                 } catch (e: Exception) {
                     logError("Error sending messages", e)
-                    try {
-                        pipedOutputStream.close()
-                    } catch (_: Exception) {}
+                    try { pipedOutputStream.close() } catch (_: Exception) {}
                     pipeClosed.set(true)
                     chunkResult.complete(Result.failure(e))
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (pipeClosed.get()) {
-                    return
-                }
+                if (pipeClosed.get() || isCancelled) return
                 try {
-                    val data = bytes.toByteArray()
-                    if (data.size >= 2) {
-                        val headerLength = data.copyOfRange(0, 2).let {
-                            (it[0].toInt() and 0xFF) shl 8 or (it[1].toInt() and 0xFF)
-                        }
-                        if (headerLength + 2 <= data.size) {
-                            val headerData = data.copyOfRange(2, 2 + headerLength)
-                            val audioData = data.copyOfRange(2 + headerLength, data.size)
-                            val headers = parseHeaders(headerData)
-                            if (headers["Path"] == "audio" && audioData.isNotEmpty()) {
-                                pipedOutputStream.write(audioData)
-                                pipedOutputStream.flush()
+                    val buffer = bytes.asByteBuffer()
+                    if (buffer.remaining() >= 2) {
+                        val headerLength = (buffer.get().toInt() and 0xFF) shl 8 or (buffer.get().toInt() and 0xFF)
+                        if (buffer.remaining() >= headerLength) {
+                            val headerBytes = ByteArray(headerLength)
+                            buffer.get(headerBytes)
+                            val headerStr = String(headerBytes, Charsets.UTF_8)
+
+                            // 高效比对：避免原方案中创建 String Array 并循环提取 Map 所造成的频繁内存分配开销
+                            if (headerStr.contains("Path:audio") || headerStr.contains("Path: audio")) {
+                                if (buffer.remaining() > 0) {
+                                    val audioData = ByteArray(buffer.remaining())
+                                    buffer.get(audioData)
+                                    pipedOutputStream.write(audioData)
+                                    // 移除了 flush()，让底层流机制自适配批次写入，减少 CPU 唤醒开销
+                                }
                             }
                         }
                     }
@@ -362,21 +373,13 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                if (pipeClosed.get()) {
-                    return
-                }
+                if (pipeClosed.get() || isCancelled) return
                 try {
-                    val headerEnd = text.indexOf("\r\n\r\n")
-                    if (headerEnd != -1) {
-                        val headerText = text.substring(0, headerEnd)
-                        val headers = parseHeaders(headerText.toByteArray())
-                        if (headers["Path"] == "turn.end") {
-                            try {
-                                pipedOutputStream.close()
-                            } catch (_: Exception) {}
-                            pipeClosed.set(true)
-                            chunkResult.complete(Result.success(Unit))
-                        }
+                    // 高效比对，去除正则提取和多余对象的生成
+                    if (text.contains("Path:turn.end") || text.contains("Path: turn.end")) {
+                        try { pipedOutputStream.close() } catch (_: Exception) {}
+                        pipeClosed.set(true)
+                        chunkResult.complete(Result.success(Unit))
                     }
                 } catch (e: Exception) {
                     logError("Error processing text message", e)
@@ -384,49 +387,27 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (code != 1000) {
-                    logError("WebSocket closing with error: $code $reason")
-                } else {
-                    logDebug("WebSocket closing: $code $reason")
-                }
-                try {
-                    pipedOutputStream.close()
-                } catch (_: Exception) {}
+                try { pipedOutputStream.close() } catch (_: Exception) {}
                 pipeClosed.set(true)
                 if (!chunkResult.isCompleted) {
-                    if (code == 1000) {
-                        chunkResult.complete(Result.success(Unit))
-                    } else {
-                        chunkResult.complete(Result.failure(Exception("WebSocket error: $code $reason")))
-                    }
+                    if (code == 1000) chunkResult.complete(Result.success(Unit))
+                    else chunkResult.complete(Result.failure(Exception("WebSocket error: $code $reason")))
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (code != 1000) {
-                    logError("WebSocket closed with error: $code $reason")
-                } else {
-                    logDebug("WebSocket closed: $code $reason")
-                }
                 pipeClosed.set(true)
                 if (!chunkResult.isCompleted) {
-                    if (code == 1000) {
-                        chunkResult.complete(Result.success(Unit))
-                    } else {
-                        chunkResult.complete(Result.failure(Exception("WebSocket error: $code $reason")))
-                    }
+                    if (code == 1000) chunkResult.complete(Result.success(Unit))
+                    else chunkResult.complete(Result.failure(Exception("WebSocket error: $code $reason")))
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 logError("WebSocket error", t)
-                try {
-                    pipedOutputStream.close()
-                } catch (_: Exception) {}
+                try { pipedOutputStream.close() } catch (_: Exception) {}
                 pipeClosed.set(true)
-                if (!chunkResult.isCompleted) {
-                    chunkResult.complete(Result.failure(t))
-                }
+                if (!chunkResult.isCompleted) chunkResult.complete(Result.failure(t))
             }
         })
 
@@ -470,23 +451,18 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         } catch (e: Exception) {
             logError("MP3 decoding error", e)
         } finally {
-            try {
-                bitstream.close()
-            } catch (_: Exception) {}
-            try {
-                inputStream.close()
-            } catch (_: Exception) {}
+            try { bitstream.close() } catch (_: Exception) {}
+            try { inputStream.close() } catch (_: Exception) {}
         }
     }
 
+    /**
+     * 高性能 PCM 转换方案：利用 NIO ByteBuffer 内存块直接复制机制，大幅度减少循环的 CPU 和时间开销
+     */
     private fun shortArrayToByteArray(shortArray: ShortArray, length: Int): ByteArray {
-        val byteArray = ByteArray(length * 2)
-        for (i in 0 until length) {
-            val value = shortArray[i]
-            byteArray[i * 2] = (value.toInt() and 0xFF).toByte()
-            byteArray[i * 2 + 1] = ((value.toInt() shr 8) and 0xFF).toByte()
-        }
-        return byteArray
+        val buffer = ByteBuffer.allocate(length * 2).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.asShortBuffer().put(shortArray, 0, length)
+        return buffer.array()
     }
 
     private fun sendConfigMessage(webSocket: WebSocket) {
@@ -510,21 +486,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         val ssml = mkssml(voice, rate, volume, pitch, text)
         val message = ssmlHeadersPlusData(connectId(), dateToString(), ssml)
         webSocket.send(message)
-    }
-
-    private fun parseHeaders(data: ByteArray): Map<String, String> {
-        val headers = mutableMapOf<String, String>()
-        val headerStr = String(data, Charsets.UTF_8)
-        val lines = headerStr.split("\r\n")
-        for (line in lines) {
-            val colonPos = line.indexOf(':')
-            if (colonPos != -1) {
-                val key = line.substring(0, colonPos).trim()
-                val value = line.substring(colonPos + 1).trim()
-                headers[key] = value
-            }
-        }
-        return headers
     }
 
     private fun convertRate(speechRate: Float): String {
