@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="minimax_voices">
+        <!-- 中文 (普通话) 音色 -->
+        <item>male-qn-qingse</item>
+        <item>male-qn-jingying</item>
+        <item>male-qn-badao</item>
+        <item>male-qn-daxuesheng</item>
+        <item>female-shaonv</item>
+        <item>female-yujie</item>
+        <item>female-chengshu</item>
+        <item>female-tianmei</item>
+        <item>male-qn-qingse-jingpin</item>
+        <item>male-qn-jingying-jingpin</item>
+        <item>male-qn-badao-jingpin</item>
+        <item>male-qn-daxuesheng-jingpin</item>
+        <item>female-shaonv-jingpin</item>
+        <item>female-yujie-jingpin</item>
+        <item>female-chengshu-jingpin</item>
+        <item>female-tianmei-jingpin</item>
+        <item>clever_boy</item>
+        <item>cute_boy</item>
+        <item>lovely_girl</item>
+        <item>cartoon_pig</item>
+        <item>bingjiao_didi</item>
+        <item>junlang_nanyou</item>
+        <item>chunzhen_xuedi</item>
+        <item>lengdan_xiongzhang</item>
+        <item>badao_shaoye</item>
+        <item>tianxin_xiaoling</item>
+        <item>qiaopi_mengmei</item>
+        <item>wumei_yujie</item>
+        <item>diadia_xuemei</item>
+        <item>danya_xuejie</item>
+        <item>Chinese (Mandarin)_Reliable_Executive</item>
+        <item>Chinese (Mandarin)_News_Anchor</item>
+        <item>Chinese (Mandarin)_Mature_Woman</item>
+        <item>Chinese (Mandarin)_Unrestrained_Young_Man</item>
+        <item>Arrogant_Miss</item>
+        <item>Robot_Armor</item>
+        <item>Chinese (Mandarin)_Kind-hearted_Antie</item>
+        <item>Chinese (Mandarin)_HK_Flight_Attendant</item>
+        <item>Chinese (Mandarin)_Humorous_Elder</item>
+        <item>Chinese (Mandarin)_Gentleman</item>
+        <item>Chinese (Mandarin)_Warm_Bestie</item>
+        <item>Chinese (Mandarin)_Male_Announcer</item>
+        <item>Chinese (Mandarin)_Sweet_Lady</item>
+        <item>Chinese (Mandarin)_Southern_Young_Man</item>
+        <item>Chinese (Mandarin)_Wise_Women</item>
+        <item>Chinese (Mandarin)_Gentle_Youth</item>
+        <item>Chinese (Mandarin)_Warm_Girl</item>
+        <item>Chinese (Mandarin)_Kind-hearted_Elder</item>
+        <item>Chinese (Mandarin)_Cute_Spirit</item>
+        <item>Chinese (Mandarin)_Radio_Host</item>
+        <item>Chinese (Mandarin)_Lyrical_Voice</item>
+        <item>Chinese (Mandarin)_Straightforward_Boy</item>
+        <item>Chinese (Mandarin)_Sincere_Adult</item>
+        <item>Chinese (Mandarin)_Gentle_Senior</item>
+        <item>Chinese (Mandarin)_Stubborn_Friend</item>
+        <item>Chinese (Mandarin)_Crisp_Girl</item>
+        <item>Chinese (Mandarin)_Pure-hearted_Boy</item>
+        <item>Chinese (Mandarin)_Soft_Girl</item>
+        <!-- 中文 (粤语) 音色 -->
+        <item>Cantonese_ProfessionalHost（F)</item>
+        <item>Cantonese_GentleLady</item>
+        <item>Cantonese_ProfessionalHost（M)</item>
+        <item>Cantonese_PlayfulMan</item>
+        <item>Cantonese_CuteGirl</item>
+        <item>Cantonese_KindWoman</item>
+    </string-array>
+
+    <string-array name="minimax_voices_display_names">
+        <item>青涩青年音色</item>
+        <item>精英青年音色</item>
+        <item>霸道青年音色</item>
+        <item>青年大学生音色</item>
+        <item>少女音色</item>
+        <item>御姐音色</item>
+        <item>成熟女性音色</item>
+        <item>甜美女性音色</item>
+        <item>青涩青年音色-beta</item>
+        <item>精英青年音色-beta</item>
+        <item>霸道青年音色-beta</item>
+        <item>青年大学生音色-beta</item>
+        <item>少女音色-beta</item>
+        <item>御姐音色-beta</item>
+        <item>成熟女性音色-beta</item>
+        <item>甜美女性音色-beta</item>
+        <item>聪明男童</item>
+        <item>可爱男童</item>
+        <item>萌萌女童</item>
+        <item>卡通猪小琪</item>
+        <item>病娇弟弟</item>
+        <item>俊朗男友</item>
+        <item>纯真学弟</item>
+        <item>冷淡学长</item>
+        <item>霸道少爷</item>
+        <item>甜心小玲</item>
+        <item>俏皮萌妹</item>
+        <item>妩媚御姐</item>
+        <item>嗲嗲学妹</item>
+        <item>淡雅学姐</item>
+        <item>沉稳高管</item>
+        <item>新闻女声</item>
+        <item>傲娇御姐</item>
+        <item>不羁青年</item>
+        <item>嚣张小姐</item>
+        <item>机械战甲</item>
+        <item>热心大婶</item>
+        <item>港普空姐</item>
+        <item>搞笑大爷</item>
+        <item>温润男声</item>
+        <item>温暖闺蜜</item>
+        <item>播报男声</item>
+        <item>甜美女声</item>
+        <item>南方小哥</item>
+        <item>阅历姐姐</item>
+        <item>温润青年</item>
+        <item>温暖少女</item>
+        <item>花甲奶奶</item>
+        <item>憨憨萌兽</item>
+        <item>电台男主播</item>
+        <item>抒情男声</item>
+        <item>率真弟弟</item>
+        <item>真诚青年</item>
+        <item>温柔学姐</item>
+        <item>嘴硬竹马</item>
+        <item>清脆少女</item>
+        <item>清澈邻家弟弟</item>
+        <item>柔和少女</item>
+        <item>专业女主持(粤语)</item>
+        <item>温柔女声(粤语)</item>
+        <item>专业男主持(粤语)</item>
+        <item>活泼男声(粤语)</item>
+        <item>可爱女孩(粤语)</item>
+        <item>善良女声(粤语)</item>
+    </string-array>
+
+    <string-array name="minimax_voices_descriptions">
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>beta版本</item>
+        <item>童声</item>
+        <item>童声</item>
+        <item>童声</item>
+        <item>卡通角色</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>职业场景</item>
+        <item>职业场景</item>
+        <item>职业场景</item>
+        <item>职业场景</item>
+        <item>角色扮演</item>
+        <item>角色扮演</item>
+        <item>职业场景</item>
+        <item>方言/口音</item>
+        <item>职业场景</item>
+        <item>通用</item>
+        <item>角色扮演</item>
+        <item>职业场景</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>职业场景</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>角色扮演</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>通用</item>
+        <item>粤语</item>
+        <item>粤语</item>
+        <item>粤语</item>
+        <item>粤语</item>
+        <item>粤语</item>
+        <item>粤语</item>
+    </string-array>
+
+    <string-array name="minimax_voices_languages">
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(普通话)</item>
+        <item>中文(粤语)</item>
+        <item>中文(粤语)</item>
+        <item>中文(粤语)</item>
+        <item>中文(粤语)</item>
+        <item>中文(粤语)</item>
+        <item>中文(粤语)</item>
+    </string-array>
+</resources>

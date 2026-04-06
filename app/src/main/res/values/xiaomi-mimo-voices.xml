@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="xiaomi_mimo_voices">
+        <item>default_zh</item>
+        <item>default_en</item>
+        <item>mimo_default</item>
+    </string-array>
+
+    <string-array name="xiaomi_mimo_voices_display_names">
+        <item>MiMo-中文女声</item>
+        <item>MiMo-英文女声</item>
+        <item>MiMo-默认</item>
+    </string-array>
+
+    <string-array name="xiaomi_mimo_voices_descriptions">
+        <item>MiMo-中文女声</item>
+        <item>MiMo-英文女声</item>
+        <item>MiMo-默认</item>
+    </string-array>
+</resources>

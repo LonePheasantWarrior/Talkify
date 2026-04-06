@@ -26,10 +26,12 @@ import com.github.lonepheasantwarrior.talkify.R
 import com.github.lonepheasantwarrior.talkify.domain.model.BaseEngineConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.ConfigItem
 import com.github.lonepheasantwarrior.talkify.domain.model.MicrosoftTtsConfig
+import com.github.lonepheasantwarrior.talkify.domain.model.MiniMaxTtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.Qwen3TtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.SeedTts2Config
 import com.github.lonepheasantwarrior.talkify.domain.model.TencentTtsConfig
 import com.github.lonepheasantwarrior.talkify.domain.model.TtsEngine
+import com.github.lonepheasantwarrior.talkify.domain.model.XiaoMiMimoConfig
 import com.github.lonepheasantwarrior.talkify.domain.repository.EngineConfigRepository
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceInfo
 import com.github.lonepheasantwarrior.talkify.domain.repository.VoiceRepository
@@ -106,6 +108,14 @@ fun ConfigBottomSheet(
             is MicrosoftTtsConfig -> {
                 val msSaved = savedConfig as? MicrosoftTtsConfig
                 msSaved ?: defaultConfig
+            }
+            is XiaoMiMimoConfig -> {
+                val mmSaved = savedConfig as? XiaoMiMimoConfig
+                mmSaved ?: defaultConfig
+            }
+            is MiniMaxTtsConfig -> {
+                val mmSaved = savedConfig as? MiniMaxTtsConfig
+                mmSaved ?: defaultConfig
             }
             else -> defaultConfig
         }
@@ -271,6 +281,32 @@ private fun buildConfigItems(
         }
         is MicrosoftTtsConfig -> {
         }
+        is XiaoMiMimoConfig -> {
+            val label = getLabel("api_key")
+            if (label != null) {
+                items.add(
+                    ConfigItem(
+                        key = "api_key",
+                        label = label,
+                        value = config.apiKey,
+                        isPassword = true
+                    )
+                )
+            }
+        }
+        is MiniMaxTtsConfig -> {
+            val label = getLabel("api_key")
+            if (label != null) {
+                items.add(
+                    ConfigItem(
+                        key = "api_key",
+                        label = label,
+                        value = config.apiKey,
+                        isPassword = true
+                    )
+                )
+            }
+        }
     }
 
     val voiceLabel = getLabel("voice_id")
@@ -322,6 +358,20 @@ private fun buildConfigFromItems(
         }
         is MicrosoftTtsConfig -> {
             MicrosoftTtsConfig(
+                voiceId = voiceId
+            )
+        }
+        is XiaoMiMimoConfig -> {
+            val apiKey = items.find { it.key == "api_key" }?.value ?: ""
+            XiaoMiMimoConfig(
+                apiKey = apiKey,
+                voiceId = voiceId
+            )
+        }
+        is MiniMaxTtsConfig -> {
+            val apiKey = items.find { it.key == "api_key" }?.value ?: ""
+            MiniMaxTtsConfig(
+                apiKey = apiKey,
                 voiceId = voiceId
             )
         }
