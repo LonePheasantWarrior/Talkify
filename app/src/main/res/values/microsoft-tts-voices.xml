@@ -20,6 +20,10 @@
         <item>zh-CN-YunhaoNeural</item>
         <item>zh-CN-YunxiNeural</item>
         <item>zh-CN-YunzeNeural</item>
+        <!-- 中文 (廣東話，繁體) -->
+        <item>zh-HK-HiuMaanNeural</item>
+        <item>zh-HK-WanLungNeural</item>
+        <item>zh-HK-HiuGaaiNeural</item>
         <!-- 英语 -->
         <item>en-US-AriaNeural</item>
         <item>en-US-GuyNeural</item>
@@ -76,6 +80,10 @@
         <item>云皓</item>
         <item>云希</item>
         <item>云泽</item>
+        <!-- 中文 (廣東話，繁體) -->
+        <item>曉曼(粵語)</item>
+        <item>雲龍(粵語)</item>
+        <item>曉佳(粵語)</item>
         <!-- 英语 -->
         <item>Aria (美音)</item>
         <item>Guy (美音)</item>

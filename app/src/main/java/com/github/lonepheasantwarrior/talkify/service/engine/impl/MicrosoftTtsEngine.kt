@@ -22,6 +22,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,6 +42,8 @@ import java.util.Locale
 import java.util.Random
 import java.util.TimeZone
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.min
@@ -49,7 +53,13 @@ import kotlin.math.min
  *
  * 继承 [AbstractTtsEngine]，实现 TTS 引擎接口
  * 支持真正的流式音频合成，边接收边播放
- * 优化点：在单次合成任务中复用单条 WebSocket 连接，消除多段落情况下的重复握手延迟
+ *
+ * 核心优化：
+ * 1. 跨 synthesize() 调用复用同一条 WebSocket 长连接，消除重复握手延迟
+ * 2. 请求流水线（Pipelining）：提前发送下一个 chunk 的 SSML 请求，
+ *    让服务端在当前 chunk 音频传输期间就开始处理下一个 chunk，
+ *    将 chunk 间的间隔从 ~3s 降低到 <1s
+ *
  * 服务提供商：Azure
  */
 class MicrosoftTtsEngine : AbstractTtsEngine() {
@@ -71,6 +81,16 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         private const val DEFAULT_VOICE = "zh-CN-XiaoxiaoNeural"
         private const val MAX_TEXT_LENGTH = 4096
         private const val PIPE_BUFFER_SIZE = 65536 // 64KB 扩容管道，防止 OkHttp 接收线程阻塞拖慢网络
+
+        /** 连接空闲超时时间（毫秒），超过此时间未使用则主动关闭连接释放资源 */
+        private const val CONNECTION_IDLE_TIMEOUT_MS = 60_000L
+
+        /**
+         * 预取窗口大小：同时在服务端排队处理的 chunk 数量
+         * 设为 3 表示当前 chunk 正在接收音频时，后续 2 个 chunk 已经在服务端排队/处理中
+         * 更大的窗口确保服务端始终有待处理的请求，消除 chunk 间的等待间隔
+         */
+        private const val PREFETCH_WINDOW = 3
 
         private val SUPPORTED_LANGUAGES = arrayOf("zho", "eng", "deu", "ita", "por", "spa", "jpn", "kor", "fra", "rus")
         private val random = Random()
@@ -206,14 +226,35 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
     }
 
-    private var currentWebSocket: WebSocket? = null
+    // ==================== 持久化 WebSocket 连接 ====================
+
+    /**
+     * 持久化 WebSocket 连接，跨 synthesize() 调用复用
+     * 通过 Mutex 保证协程安全的连接获取与释放
+     */
+    private val connectionMutex = Mutex()
+    private var persistentWebSocket: WebSocket? = null
+    private var persistentListener: PersistentWebSocketListener? = null
+
+    /** 连接是否处于可用状态（已连接且未被服务端关闭） */
+    @Volatile
+    private var isConnectionAlive = false
+
+    /** 空闲超时定时器 */
+    private var idleTimeoutJob: Job? = null
+
+    /** 上次使用连接的时间戳 */
+    @Volatile
+    private var lastUsedTimestamp = 0L
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS) // 心跳保活，防止中间网络设备超时断连
         .build()
 
+    @Volatile
     private var isCancelled = false
     private var hasCompleted = false
 
@@ -278,6 +319,19 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
     }
 
+    /**
+     * 流水线式处理多个 chunk —— 零间隔版本
+     *
+     * 核心思路：
+     * - 活跃 chunk（队列头部）的音频在 OkHttp 回调线程上直接写入管道，零延迟
+     * - 预取 chunk 的音频暂存到内存缓冲区
+     * - 当活跃 chunk 收到 turn.end 时，下一个 chunk 立即被提升为活跃，
+     *   其已缓冲的音频在同一个回调中被一次性 drain 到管道，后续音频也直接写入
+     * - 整个提升 + drain 过程发生在 OkHttp 回调线程内，不经过协程调度，
+     *   消除了之前 deferred.await() → flushChunkAudio() 的协程切换延迟
+     *
+     * processChunks 协程只负责：发送 SSML 请求 + 等待所有 chunk 完成 + 资源清理
+     */
     private suspend fun processChunks(
         chunks: List<String>,
         params: SynthesisParams,
@@ -291,55 +345,113 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
 
         // 解码是 CPU 密集型操作，调度至 Default
-        // 现在的 DecodeJob 贯穿整个 synthesis 周期，不用为每个 chunk 反复创建
         val decodeJob = engineScope.launch(Dispatchers.Default) {
             decodeMp3Stream(pipedInputStream, listener)
         }
 
-        var webSocket: WebSocket? = null
-
         try {
-            // 1. 建立全局 WebSocket 连接
-            val wsListener = MicrosoftWebSocketListener(pipedOutputStream, pipeClosed)
-            webSocket = connectWebSocket(wsListener)
-            currentWebSocket = webSocket
+            // 1. 获取或复用持久化 WebSocket 连接
+            val (webSocket, wsListener) = getOrCreateConnection(pipedOutputStream, pipeClosed)
 
             val voice = config.voiceId.ifEmpty { DEFAULT_VOICE }
             val rate = convertRate(params.speechRate)
             val volume = convertVolume(params.volume)
             val pitch = convertPitch(params.pitch)
 
-            // 2. 顺序处理 Chunks
-            for ((index, chunk) in chunks.withIndex()) {
+            // 2. 为每个 chunk 生成唯一 RequestId 并创建完成信号
+            val requestIds = chunks.map { connectId() }
+            val deferreds = chunks.map { CompletableDeferred<Result<Unit>>() }
+
+            // 注册到监听器：第一个 chunk 为活跃（直接写管道），其余为预取（缓冲）
+            wsListener.beginStreamingSession(requestIds, deferreds, pipedOutputStream)
+
+            // 3. 流水线发送：预取窗口内的 chunk 立即发送
+            var nextToSend = 0
+            while (nextToSend < chunks.size && nextToSend < PREFETCH_WINDOW) {
                 if (isCancelled) break
-                logDebug("Processing chunk ${index + 1}/${chunks.size}")
-
-                val chunkDeferred = CompletableDeferred<Result<Unit>>()
-                wsListener.setCurrentChunkDeferred(chunkDeferred)
-
-                sendSsmlMessage(webSocket, voice, rate, volume, pitch, chunk)
-
-                // 等待当前 chunk 返回 Path:turn.end
-                val result = chunkDeferred.await()
-                result.getOrThrow()
+                logDebug("Pipelining: sending chunk ${nextToSend + 1}/${chunks.size} (requestId=${requestIds[nextToSend].take(8)}...)")
+                sendSsmlMessageWithId(webSocket, requestIds[nextToSend], voice, rate, volume, pitch, chunks[nextToSend])
+                nextToSend++
             }
+
+            // 4. 按顺序等待每个 chunk 完成，完成一个就补发一个新的
+            for (i in chunks.indices) {
+                if (isCancelled) break
+
+                val result = deferreds[i].await()
+                result.getOrThrow()
+
+                logDebug("Chunk ${i + 1}/${chunks.size} completed")
+
+                // 补发下一个 chunk（滑动窗口）
+                if (nextToSend < chunks.size && !isCancelled) {
+                    logDebug("Pipelining: sending chunk ${nextToSend + 1}/${chunks.size} (requestId=${requestIds[nextToSend].take(8)}...)")
+                    sendSsmlMessageWithId(webSocket, requestIds[nextToSend], voice, rate, volume, pitch, chunks[nextToSend])
+                    nextToSend++
+                }
+            }
+
+            // 5. 合成完成，标记连接空闲
+            wsListener.endStreamingSession()
+            lastUsedTimestamp = System.currentTimeMillis()
+            wsListener.detachPipe()
+            scheduleIdleTimeout()
+        } catch (e: Exception) {
+            closeConnection()
+            throw e
         } finally {
-            // 3. 统一资源清理
             try {
                 withContext(Dispatchers.IO) {
                     pipedOutputStream.close()
                 }
             } catch (_: Exception) {}
             pipeClosed.set(true)
-            webSocket?.close(1000, "Done")
-            currentWebSocket = null
 
-            // 等待音频播放线程安全退出
             decodeJob.join()
         }
     }
 
-    private suspend fun connectWebSocket(listener: MicrosoftWebSocketListener): WebSocket {
+    // ==================== 持久化连接管理 ====================
+
+    /**
+     * 获取可复用的 WebSocket 连接，如果不存在或已失效则新建
+     */
+    private suspend fun getOrCreateConnection(
+        pipedOutputStream: PipedOutputStream,
+        pipeClosed: AtomicBoolean
+    ): Pair<WebSocket, PersistentWebSocketListener> = connectionMutex.withLock {
+        // 取消空闲超时计时器（连接正在被使用）
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
+
+        val existingWs = persistentWebSocket
+        val existingListener = persistentListener
+
+        if (existingWs != null && existingListener != null && isConnectionAlive) {
+            logDebug("Reusing persistent WebSocket connection")
+            existingListener.attachPipe(pipedOutputStream, pipeClosed)
+            return@withLock Pair(existingWs, existingListener)
+        }
+
+        // 连接不存在或已失效，新建连接
+        logInfo("Creating new persistent WebSocket connection")
+        closeConnectionInternal()
+
+        val listener = PersistentWebSocketListener(pipedOutputStream, pipeClosed)
+        val webSocket = openWebSocket(listener)
+
+        persistentWebSocket = webSocket
+        persistentListener = listener
+        isConnectionAlive = true
+        lastUsedTimestamp = System.currentTimeMillis()
+
+        Pair(webSocket, listener)
+    }
+
+    /**
+     * 打开新的 WebSocket 连接并等待握手完成
+     */
+    private suspend fun openWebSocket(listener: PersistentWebSocketListener): WebSocket {
         val connectionId = connectId()
         val url = "$WSS_URL&ConnectionId=$connectionId" +
                 "&Sec-MS-GEC=${generateSecMsGec()}&Sec-MS-GEC-Version=$SEC_MS_GEC_VERSION"
@@ -354,18 +466,133 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
     }
 
     /**
-     * 内部 WebSocket 监听器，负责接管长连接的状态并分发音频流和 Chunk 结束信号
+     * 安排空闲超时关闭连接
      */
-    inner class MicrosoftWebSocketListener(
-        private val pipedOutputStream: PipedOutputStream,
-        private val pipeClosed: AtomicBoolean
+    private fun scheduleIdleTimeout() {
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = engineScope.launch {
+            kotlinx.coroutines.delay(CONNECTION_IDLE_TIMEOUT_MS)
+            val elapsed = System.currentTimeMillis() - lastUsedTimestamp
+            if (elapsed >= CONNECTION_IDLE_TIMEOUT_MS) {
+                logInfo("WebSocket idle timeout reached, closing connection")
+                closeConnection()
+            }
+        }
+    }
+
+    @Synchronized
+    private fun closeConnection() {
+        closeConnectionInternal()
+    }
+
+    private fun closeConnectionInternal() {
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
+        persistentWebSocket?.close(1000, "Done")
+        persistentWebSocket = null
+        persistentListener = null
+        isConnectionAlive = false
+    }
+
+    // ==================== 持久化 WebSocket 监听器（零间隔流式） ====================
+
+    /**
+     * 持久化 WebSocket 监听器，支持零间隔流式音频输出
+     *
+     * 核心机制：维护一个有序的 chunk 队列，队列头部为"活跃 chunk"。
+     * - 活跃 chunk 的音频数据在 OkHttp 回调线程上直接写入管道（零延迟）
+     * - 非活跃 chunk 的音频数据暂存到内存缓冲区
+     * - 当活跃 chunk 收到 turn.end 时，立即提升下一个 chunk 为活跃，
+     *   并在同一个回调中将其已缓冲的音频一次性 drain 到管道
+     *
+     * 这样 chunk 之间的间隔 = 0（纯内存操作，无网络/协程调度延迟）
+     */
+    inner class PersistentWebSocketListener(
+        pipedOutputStream: PipedOutputStream,
+        pipeClosed: AtomicBoolean
     ) : WebSocketListener() {
 
         private val connectionDeferred = CompletableDeferred<Result<WebSocket>>()
-        private var currentChunkDeferred: CompletableDeferred<Result<Unit>>? = null
 
-        fun setCurrentChunkDeferred(deferred: CompletableDeferred<Result<Unit>>) {
-            currentChunkDeferred = deferred
+        @Volatile
+        private var currentPipedOutputStream: PipedOutputStream? = pipedOutputStream
+
+        @Volatile
+        private var currentPipeClosed: AtomicBoolean = pipeClosed
+
+        // ---- 流式状态（所有字段通过 streamLock 同步） ----
+
+        private val streamLock = Any()
+
+        /** 有序的 RequestId 列表，索引即 chunk 顺序 */
+        private var orderedRequestIds: List<String> = emptyList()
+
+        /** 当前活跃 chunk 的索引（其音频直接写管道） */
+        private var activeChunkIndex = 0
+
+        /** RequestId → 音频缓冲队列（仅非活跃 chunk 使用） */
+        private val audioBuffers = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
+
+        /** RequestId → 完成信号 */
+        private val chunkDeferreds = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+
+        /** 用于直接写管道的输出流引用（在 streamLock 内访问） */
+        private var streamingPipe: PipedOutputStream? = null
+
+        /** 是否处于流式会话中 */
+        @Volatile
+        private var inSession = false
+
+        /**
+         * 开始流式会话
+         * @param requestIds 有序的 RequestId 列表
+         * @param deferreds 对应的完成信号列表
+         * @param pipe 音频输出管道
+         */
+        fun beginStreamingSession(
+            requestIds: List<String>,
+            deferreds: List<CompletableDeferred<Result<Unit>>>,
+            pipe: PipedOutputStream
+        ) {
+            synchronized(streamLock) {
+                audioBuffers.clear()
+                chunkDeferreds.clear()
+                orderedRequestIds = requestIds
+                activeChunkIndex = 0
+                streamingPipe = pipe
+                inSession = true
+
+                for (i in requestIds.indices) {
+                    chunkDeferreds[requestIds[i]] = deferreds[i]
+                    // 非活跃 chunk 需要缓冲区；活跃 chunk 直接写管道不需要
+                    if (i > 0) {
+                        audioBuffers[requestIds[i]] = ConcurrentLinkedQueue()
+                    }
+                }
+            }
+        }
+
+        /**
+         * 结束流式会话，清理状态
+         */
+        fun endStreamingSession() {
+            synchronized(streamLock) {
+                inSession = false
+                orderedRequestIds = emptyList()
+                activeChunkIndex = 0
+                audioBuffers.clear()
+                chunkDeferreds.clear()
+                streamingPipe = null
+            }
+        }
+
+        fun attachPipe(pipedOutputStream: PipedOutputStream, pipeClosed: AtomicBoolean) {
+            currentPipedOutputStream = pipedOutputStream
+            currentPipeClosed = pipeClosed
+        }
+
+        fun detachPipe() {
+            currentPipedOutputStream = null
         }
 
         suspend fun awaitConnection(): WebSocket {
@@ -373,7 +600,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            logDebug("WebSocket connected")
+            logDebug("WebSocket connected (persistent)")
             try {
                 sendConfigMessage(webSocket)
                 connectionDeferred.complete(Result.success(webSocket))
@@ -383,81 +610,202 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            if (pipeClosed.get() || isCancelled) return
+            val closed = currentPipeClosed
+            if (closed.get() || isCancelled) return
+
             try {
                 val buffer = bytes.asByteBuffer()
-                if (buffer.remaining() >= 2) {
-                    val headerLength = (buffer.get().toInt() and 0xFF) shl 8 or (buffer.get().toInt() and 0xFF)
-                    if (buffer.remaining() >= headerLength) {
-                        val headerBytes = ByteArray(headerLength)
-                        buffer.get(headerBytes)
-                        val headerStr = String(headerBytes, Charsets.UTF_8)
+                if (buffer.remaining() < 2) return
 
-                        if (headerStr.contains("Path:audio") || headerStr.contains("Path: audio")) {
-                            if (buffer.remaining() > 0) {
-                                val audioData = ByteArray(buffer.remaining())
-                                buffer.get(audioData)
-                                pipedOutputStream.write(audioData)
-                            }
-                        }
-                    }
-                }
+                val headerLength = (buffer.get().toInt() and 0xFF) shl 8 or (buffer.get().toInt() and 0xFF)
+                if (buffer.remaining() < headerLength) return
+
+                val headerBytes = ByteArray(headerLength)
+                buffer.get(headerBytes)
+                val headerStr = String(headerBytes, Charsets.UTF_8)
+
+                if (!headerStr.contains("Path:audio") && !headerStr.contains("Path: audio")) return
+                if (buffer.remaining() <= 0) return
+
+                val audioData = ByteArray(buffer.remaining())
+                buffer.get(audioData)
+
+                routeAudioData(headerStr, audioData)
             } catch (e: Exception) {
-                handleFailure(webSocket, e)
+                if (!closed.get()) {
+                    logError("Error processing audio message", e)
+                    handleConnectionFailure(e)
+                }
+            }
+        }
+
+        /**
+         * 路由音频数据：活跃 chunk 直接写管道，其余缓冲
+         * 在 streamLock 内执行，保证与 turn.end 的提升操作互斥
+         */
+        private fun routeAudioData(headerStr: String, audioData: ByteArray) {
+            synchronized(streamLock) {
+                if (!inSession) {
+                    // 非会话模式（不应该发生，但安全回退）
+                    currentPipedOutputStream?.write(audioData)
+                    return
+                }
+
+                val requestId = extractRequestId(headerStr)
+
+                if (requestId != null && activeChunkIndex < orderedRequestIds.size
+                    && requestId == orderedRequestIds[activeChunkIndex]
+                ) {
+                    // 活跃 chunk → 直接写管道，零延迟
+                    streamingPipe?.write(audioData)
+                } else if (requestId != null) {
+                    // 非活跃 chunk → 缓冲
+                    audioBuffers[requestId]?.add(audioData)
+                } else {
+                    // RequestId 解析失败，直接写管道
+                    streamingPipe?.write(audioData)
+                }
             }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            if (pipeClosed.get() || isCancelled) return
+            val closed = currentPipeClosed
+            if (closed.get() || isCancelled) return
+
             try {
                 if (text.contains("Path:turn.end") || text.contains("Path: turn.end")) {
-                    // 通知当前 Chunk 结束，可以继续发送下一个 Chunk 了
-                    currentChunkDeferred?.complete(Result.success(Unit))
+                    val requestId = extractRequestIdFromText(text)
+                    handleTurnEnd(requestId)
                 }
             } catch (e: Exception) {
                 logError("Error processing text message", e)
             }
         }
 
-        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            handleCloseOrFailure(code, reason, null)
-        }
+        /**
+         * 处理 turn.end：完成当前 chunk，提升下一个 chunk 为活跃并立即 drain 其缓冲
+         * 全部在 streamLock 内完成，保证与 routeAudioData 互斥
+         */
+        private fun handleTurnEnd(requestId: String?) {
+            synchronized(streamLock) {
+                if (!inSession || orderedRequestIds.isEmpty()) {
+                    // 非会话模式，按旧逻辑处理
+                    if (requestId != null) {
+                        chunkDeferreds[requestId]?.complete(Result.success(Unit))
+                    }
+                    return
+                }
 
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            handleCloseOrFailure(code, reason, null)
-        }
+                // 确定是哪个 chunk 完成了
+                val completedId = requestId
+                    ?: if (activeChunkIndex < orderedRequestIds.size) orderedRequestIds[activeChunkIndex] else null
 
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            handleCloseOrFailure(null, null, t)
-        }
+                if (completedId != null) {
+                    chunkDeferreds[completedId]?.complete(Result.success(Unit))
+                }
 
-        private fun handleFailure(webSocket: WebSocket, e: Exception) {
-            if (!pipeClosed.get()) {
-                logError("WebSocket error processing message", e)
-                webSocket.close(1000, "Error")
-                handleCloseOrFailure(null, null, e)
+                // 提升下一个 chunk 为活跃
+                activeChunkIndex++
+
+                if (activeChunkIndex < orderedRequestIds.size) {
+                    val nextId = orderedRequestIds[activeChunkIndex]
+                    val pipe = streamingPipe
+
+                    // 立即 drain 已缓冲的音频数据到管道
+                    if (pipe != null) {
+                        val queue = audioBuffers.remove(nextId)
+                        if (queue != null) {
+                            var data = queue.poll()
+                            while (data != null) {
+                                pipe.write(data)
+                                data = queue.poll()
+                            }
+                        }
+                    }
+                    // 从此刻起，nextId 的后续音频会在 routeAudioData 中直接写管道
+                }
             }
         }
 
-        private fun handleCloseOrFailure(code: Int?, reason: String?, t: Throwable?) {
-            pipeClosed.set(true)
-            try { pipedOutputStream.close() } catch (_: Exception) {}
+        /**
+         * 从消息头中提取 X-RequestId
+         */
+        private fun extractRequestId(headerStr: String): String? {
+            val prefix = "X-RequestId:"
+            val startIdx = headerStr.indexOf(prefix)
+            if (startIdx < 0) return null
+            val valueStart = startIdx + prefix.length
+            val endIdx = headerStr.indexOf('\r', valueStart).let {
+                if (it < 0) headerStr.indexOf('\n', valueStart) else it
+            }
+            return if (endIdx > valueStart) headerStr.substring(valueStart, endIdx).trim()
+            else headerStr.substring(valueStart).trim().takeIf { it.isNotEmpty() }
+        }
 
-            val exception = t ?: Exception("WebSocket closed with code: $code, reason: $reason")
+        private fun extractRequestIdFromText(text: String): String? {
+            return extractRequestId(text)
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            logDebug("WebSocket closing: code=$code, reason=$reason")
+            markConnectionDead()
+            completeAllPending(code, reason, null)
+        }
+
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            logDebug("WebSocket closed: code=$code, reason=$reason")
+            markConnectionDead()
+            completeAllPending(code, reason, null)
+        }
+
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            logError("WebSocket failure", if (t is Exception) t else Exception(t))
+            markConnectionDead()
+            handleConnectionFailure(t)
+        }
+
+        private fun markConnectionDead() {
+            isConnectionAlive = false
+        }
+
+        private fun handleConnectionFailure(t: Throwable) {
+            markConnectionDead()
+            currentPipeClosed.set(true)
+            try { currentPipedOutputStream?.close() } catch (_: Exception) {}
+
+            val exception = if (t is Exception) t else Exception(t)
 
             if (!connectionDeferred.isCompleted) {
                 connectionDeferred.complete(Result.failure(exception))
             }
 
-            currentChunkDeferred?.let { deferred ->
+            for (deferred in chunkDeferreds.values) {
                 if (!deferred.isCompleted) {
-                    // 如果正常 1000 关闭，且最后一段还没闭合，当做成功处理；否则上抛异常
+                    deferred.complete(Result.failure(exception))
+                }
+            }
+        }
+
+        private fun completeAllPending(code: Int?, reason: String?, t: Throwable?) {
+            currentPipeClosed.set(true)
+            try { currentPipedOutputStream?.close() } catch (_: Exception) {}
+
+            val exception = t ?: Exception("WebSocket closed with code: $code, reason: $reason")
+
+            if (!connectionDeferred.isCompleted) {
+                connectionDeferred.complete(Result.failure(if (exception is Exception) exception else Exception(exception)))
+            }
+
+            for (deferred in chunkDeferreds.values) {
+                if (!deferred.isCompleted) {
                     if (code == 1000) deferred.complete(Result.success(Unit))
-                    else deferred.complete(Result.failure(exception))
+                    else deferred.complete(Result.failure(if (exception is Exception) exception else Exception(exception)))
                 }
             }
         }
     }
+
+    // ==================== 音频解码 ====================
 
     private fun decodeMp3Stream(inputStream: PipedInputStream, listener: TtsSynthesisListener) {
         val bitstream = Bitstream(inputStream)
@@ -487,7 +835,6 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
                 bitstream.closeFrame()
             }
         } catch (e: Exception) {
-            // 当我们主动关闭 PipedOutputStream 时，Bitstream 可能会抛出一些可预见的流结束异常，只需记录 Debug 即可
             logDebug("MP3 decoding finished or interrupted: ${e.message}")
         } finally {
             try { bitstream.close() } catch (_: Exception) {}
@@ -496,13 +843,15 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
     }
 
     /**
-     * 高性能 PCM 转换方案：利用 NIO ByteBuffer 内存块直接复制机制，大幅度减少循环的 CPU 和时间开销
+     * 高性能 PCM 转换方案：利用 NIO ByteBuffer 内存块直接复制机制
      */
     private fun shortArrayToByteArray(shortArray: ShortArray, length: Int): ByteArray {
         val buffer = ByteBuffer.allocate(length * 2).order(ByteOrder.LITTLE_ENDIAN)
         buffer.asShortBuffer().put(shortArray, 0, length)
         return buffer.array()
     }
+
+    // ==================== WebSocket 消息构建 ====================
 
     private fun sendConfigMessage(webSocket: WebSocket) {
         val configMessage = "X-Timestamp:${dateToString()}\r\n" +
@@ -514,8 +863,12 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         webSocket.send(configMessage)
     }
 
-    private fun sendSsmlMessage(
+    /**
+     * 发送带指定 RequestId 的 SSML 消息（流水线模式使用）
+     */
+    private fun sendSsmlMessageWithId(
         webSocket: WebSocket,
+        requestId: String,
         voice: String,
         rate: String,
         volume: String,
@@ -523,10 +876,11 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         text: String
     ) {
         val ssml = mkssml(voice, rate, volume, pitch, text)
-        // 注意：每次发送 SSML 都需要重新生成一个新的 RequestId 以区分 Turn
-        val message = ssmlHeadersPlusData(connectId(), dateToString(), ssml)
+        val message = ssmlHeadersPlusData(requestId, dateToString(), ssml)
         webSocket.send(message)
     }
+
+    // ==================== 参数转换 ====================
 
     private fun convertRate(speechRate: Float): String {
         val ratePercent = ((speechRate - 100) / 100 * 100).toInt()
@@ -542,6 +896,8 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         val pitchHz = ((pitch - 100) / 100 * 50).toInt()
         return if (pitchHz >= 0) "+${pitchHz}Hz" else "${pitchHz}Hz"
     }
+
+    // ==================== 引擎元数据 ====================
 
     override fun getSupportedLanguages(): Set<String> {
         return SUPPORTED_LANGUAGES.toSet()
@@ -577,11 +933,11 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
         return !voiceId.isNullOrBlank()
     }
 
+    // ==================== 生命周期管理 ====================
+
     override fun stop() {
         logInfo("Stopping synthesis")
         isCancelled = true
-        currentWebSocket?.close(1000, "Stopped by user")
-        currentWebSocket = null
         synthesisJob?.cancel()
         synthesisJob = null
     }
@@ -589,8 +945,7 @@ class MicrosoftTtsEngine : AbstractTtsEngine() {
     override fun release() {
         logInfo("Releasing engine")
         isCancelled = true
-        currentWebSocket?.close(1000, "Released")
-        currentWebSocket = null
+        closeConnection()
         synthesisJob?.cancel()
         synthesisJob = null
         engineJob.cancel()
